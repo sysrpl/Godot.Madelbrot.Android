@@ -1,0 +1,38 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Play Game",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "godot",
+            "args": [
+                "--path",
+                "${workspaceFolder}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false
+        },
+        {
+            "name": "Play and Debug",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "godot",
+            "args": [
+                "--path",
+                "${workspaceFolder}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "justMyCode": false,
+            "symbolOptions": {
+                "searchPaths": [
+                    "${workspaceFolder}/.godot/mono/temp/bin/Debug"
+                ],
+                "searchMicrosoftSymbolServer": false
+            }
+        }
+    ]
+}

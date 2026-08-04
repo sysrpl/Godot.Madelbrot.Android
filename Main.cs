@@ -23,7 +23,11 @@ public partial class Main : Node3D
 		public static DVector2 operator *(DVector2 a, double s) => new(a.X * s, a.Y * s);
 	}
 
-	private const float ZoomAnimationSeconds = 0.2f;
+	private const float ZoomAnimationSeconds = 0.3f;
+	private const float WheelZoomFactor = 1.25f;
+	// Kept well above 1/ZoomAnimationSeconds so a single idle-rate frame can never carry a
+	// delta large enough to complete the whole zoom animation in one step (which is exactly
+	// what happened at 5 FPS, since 1/5s == ZoomAnimationSeconds).
 	private const int IdleFps = 5;
 	private const int ActiveFps = 60;
 	private const double UnthrottleSeconds = 2.0;
@@ -179,11 +183,11 @@ public partial class Main : Node3D
 			}
 			else if (mouseButton.Pressed && mouseButton.ButtonIndex == MouseButton.WheelUp)
 			{
-				Zoom(mouseButton.Position, 1.1f);
+				Zoom(mouseButton.Position, WheelZoomFactor);
 			}
 			else if (mouseButton.Pressed && mouseButton.ButtonIndex == MouseButton.WheelDown)
 			{
-				Zoom(mouseButton.Position, 1.0f / 1.1f);
+				Zoom(mouseButton.Position, 1.0f / WheelZoomFactor);
 			}
 		}
 		else if (@event is InputEventMouseMotion mouseMotion)

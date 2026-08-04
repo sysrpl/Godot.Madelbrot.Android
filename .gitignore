@@ -1,0 +1,18 @@
+# Godot 4+ specific ignores
+.godot/
+.import/
+export.cfg
+export_credentials.cfg
+data_*/
+mono_crash.*.json
+
+# .NET
+bin/
+obj/
+
+# Build output and Wi-Fi adb cache
+builds/
+.wifi_device_ip
+
+# Android Gradle build tree (regenerated from export templates; large, not source)
+android/build/

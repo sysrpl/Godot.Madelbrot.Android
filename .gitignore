@@ -5,7 +5,8 @@ export.cfg
 export_credentials.cfg
 data_*/
 mono_crash.*.json
-
+*.import
+*.uid
 # .NET
 bin/
 obj/

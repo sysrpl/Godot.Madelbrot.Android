@@ -1,17 +1,66 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="350" height="90" viewBox="0 0 350 90">
-  <g opacity="1.0">
-    <rect x="1.5" y="1.5" width="347" height="87"
-          rx="18" ry="18"
-          fill="#2c2521" stroke="#e8874a" stroke-width="3"/>
-    <g transform="translate(73.5,12.0) scale(2.75)">
-      
-    <circle cx="12" cy="12" r="9.5" fill="none" stroke="#e8874a" stroke-width="2.2"/>
-    <polygon points="12,6.5 14.3,12 12,17.5 9.7,12" fill="#e8874a"/>
-    <circle cx="12" cy="12" r="1.4" fill="#211c19"/>
-    
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="350"
+   height="90"
+   viewBox="0 0 350 90"
+   version="1.1"
+   id="svg3"
+   sodipodi:docname="tour_hover.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs3" />
+  <sodipodi:namedview
+     id="namedview3"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1" />
+  <g
+     opacity="1.0"
+     id="g3">
+    <rect
+       x="1.5"
+       y="1.5"
+       width="347"
+       height="87"
+       rx="18"
+       ry="18"
+       fill="#2c2521"
+       stroke="#e8874a"
+       stroke-width="3"
+       id="rect1" />
+    <g
+       transform="translate(73.5,12.0) scale(2.75)"
+       id="g2">
+      <circle
+         cx="12"
+         cy="12"
+         r="9.5"
+         fill="none"
+         stroke="#e8874a"
+         stroke-width="2.2"
+         id="circle1" />
+      <polygon
+         points="12,6.5 14.3,12 12,17.5 9.7,12"
+         fill="#e8874a"
+         id="polygon1" />
+      <circle
+         cx="12"
+         cy="12"
+         r="1.4"
+         fill="#211c19"
+         id="circle2" />
     </g>
-    <text x="159.5" y="45.0" dy="17.0" text-anchor="start"
-          font-family="Verdana, 'DejaVu Sans', Arial, sans-serif" font-size="50" font-weight="700"
-          fill="#ffffff" letter-spacing="0.5">Tour</text>
+    <path
+       d="m 159.74414,25.549805 h 33.59375 v 7.104492 H 181.25293 V 62 h -9.39941 V 32.654297 h -12.10938 z m 44.93359,14.697265 q -2.90527,0 -4.44336,2.09961 -1.51367,2.075195 -1.51367,6.005859 0,3.930664 1.51367,6.030273 1.53809,2.075196 4.44336,2.075196 2.85645,0 4.37012,-2.075196 1.51367,-2.099609 1.51367,-6.030273 0,-3.930664 -1.51367,-6.005859 -1.51367,-2.09961 -4.37012,-2.09961 z m 0,-6.25 q 7.05567,0 11.01075,3.808594 3.97949,3.808594 3.97949,10.546875 0,6.738281 -3.97949,10.546875 -3.95508,3.808594 -11.01075,3.808594 -7.08007,0 -11.08398,-3.808594 -3.97949,-3.808594 -3.97949,-10.546875 0,-6.738281 3.97949,-10.546875 4.00391,-3.808594 11.08398,-3.808594 z m 21.54493,17.358399 V 34.65625 h 8.78906 v 2.734375 q 0,2.22168 -0.0244,5.59082 -0.0244,3.344727 -0.0244,4.467774 0,3.295898 0.1709,4.760742 0.1709,1.44043 0.58594,2.099609 0.53711,0.854492 1.3916,1.31836 0.8789,0.463867 2.00195,0.463867 2.73438,0 4.29688,-2.09961 1.5625,-2.099609 1.5625,-5.83496 V 34.65625 h 8.74023 V 62 h -8.74023 v -3.955078 q -1.97754,2.392578 -4.19922,3.540039 -2.19727,1.123047 -4.8584,1.123047 -4.73633,0 -7.22656,-2.905274 -2.46582,-2.905273 -2.46582,-8.447265 z m 56.70117,-9.25293 q -1.14746,-0.537109 -2.29492,-0.78125 -1.12305,-0.268555 -2.27051,-0.268555 -3.36914,0 -5.2002,2.172852 -1.80664,2.148437 -1.80664,6.176758 V 62 h -8.74023 V 34.65625 h 8.74023 v 4.492187 q 1.68457,-2.685546 3.85742,-3.90625 2.19727,-1.245117 5.24903,-1.245117 0.43945,0 0.95215,0.04883 0.51269,0.02441 1.48925,0.146485 z"
+       id="text2"
+       style="font-weight:700;font-size:50px;font-family:Verdana, 'DejaVu Sans', Arial, sans-serif;letter-spacing:0.5;fill:#ffffff"
+       aria-label="Tour" />
   </g>
 </svg>

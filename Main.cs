@@ -103,6 +103,42 @@ public partial class Main : Node3D
     // top of already-limited GPU headroom, so it jumps straight to the target instead.
     internal static readonly bool IsAndroid = OS.GetName() == "Android";
 
+    // Every resources/buttons/{prefix}_{state}.svg is a complete, self-contained 350x90
+    // button graphic (background, border, icon and caption all baked in), so these load as
+    // whole per-state textures via TextureButton rather than a Button + theme stylebox/font.
+    private const float ButtonSvgAspect = 90f / 350f;
+
+    // Scales the main Tour/Mark/Edit/Quit button stack (top-left of the main window). Tweak
+    // this one value - UpdateButtonLayout() derives its stacking spacing from the resulting
+    // button size, so it doesn't need separate adjustment.
+    private const float MainButtonScale = 0.75f;
+
+    private static TextureButton CreateIconButton(string name, string prefix, float width)
+    {
+        var size = new Vector2(width, width * ButtonSvgAspect);
+        return new TextureButton
+        {
+            Name = name,
+            TextureNormal = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_normal.svg"),
+            TextureHover = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_hover.svg"),
+            TexturePressed = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_pressed.svg"),
+            TextureDisabled = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_disabled.svg"),
+            IgnoreTextureSize = true,
+            StretchMode = TextureButton.StretchModeEnum.Scale,
+            CustomMinimumSize = size,
+            Size = size
+        };
+    }
+
+    private void SetTourButtonTouring(bool touring)
+    {
+        string prefix = touring ? "stop" : "tour";
+        _tourButton.TextureNormal = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_normal.svg");
+        _tourButton.TextureHover = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_hover.svg");
+        _tourButton.TexturePressed = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_pressed.svg");
+        _tourButton.TextureDisabled = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_disabled.svg");
+    }
+
     private ShaderMaterial _mandelbrotShader;
     private DVector2 _panOffset = new(-0.5, 0.0);
     private double _zoom = 1.0;
@@ -116,13 +152,13 @@ public partial class Main : Node3D
     private int _tourIndex = 0;
     private Tween _tourTween;
     private Tween _tourRotationTween;
-    private Button _tourButton;
-    private Button _quitButton;
-    private Button _markButton;
-    private Button _editButton;
+    private TextureButton _tourButton;
+    private TextureButton _quitButton;
+    private TextureButton _markButton;
+    private TextureButton _editButton;
     private Label _statsLabel;
     private List<TourPointData> _tourPoints = new();
-    private EscapeCatchingWindow _pointsWindow;
+    private DraggableWindow _pointsWindow;
     private ScrollContainer _pointsScrollContainer;
     private float _pointsScrollRemainder;
     private VBoxContainer _pointsListContainer;
@@ -165,48 +201,20 @@ public partial class Main : Node3D
         OS.LowProcessorUsageMode = true;
         UpdateFramerate();
 
-        _tourButton = new Button
-        {
-            Name = "TourButton",
-            Text = "Tour",
-            Theme = theme,
-            Position = new Vector2(20, 20),
-            Size = new Vector2(140, 60)
-        };
-        _tourButton.AddThemeFontSizeOverride("font_size", 28);
+        _tourButton = CreateIconButton("TourButton", "tour", 280f * MainButtonScale);
+        _tourButton.Position = new Vector2(20, 20);
         _tourButton.Pressed += OnTourPressed;
         ui.AddChild(_tourButton);
 
-        _markButton = new Button
-        {
-            Name = "MarkButton",
-            Text = "Mark",
-            Theme = theme,
-            Size = new Vector2(140, 60)
-        };
-        _markButton.AddThemeFontSizeOverride("font_size", 28);
+        _markButton = CreateIconButton("MarkButton", "mark", 280f * MainButtonScale);
         _markButton.Pressed += MarkTourPoint;
         ui.AddChild(_markButton);
 
-        _editButton = new Button
-        {
-            Name = "EditButton",
-            Text = "Edit",
-            Theme = theme,
-            Size = new Vector2(140, 60)
-        };
-        _editButton.AddThemeFontSizeOverride("font_size", 28);
+        _editButton = CreateIconButton("EditButton", "edit", 280f * MainButtonScale);
         _editButton.Pressed += OnPointsButtonPressed;
         ui.AddChild(_editButton);
 
-        _quitButton = new Button
-        {
-            Name = "QuitButton",
-            Text = "Quit",
-            Theme = theme,
-            Size = new Vector2(140, 60)
-        };
-        _quitButton.AddThemeFontSizeOverride("font_size", 28);
+        _quitButton = CreateIconButton("QuitButton", "quit", 280f * MainButtonScale);
         _quitButton.Pressed += OnQuitPressed;
         ui.AddChild(_quitButton);
 
@@ -260,9 +268,10 @@ public partial class Main : Node3D
         _markButton.Visible = !_touring;
         _editButton.Visible = !_touring;
 
-        _markButton.Position = new Vector2(20, 90);
-        _editButton.Position = new Vector2(20, 160);
-        _quitButton.Position = _touring ? new Vector2(20, 90) : new Vector2(20, 230);
+        float step = _tourButton.Size.Y + 8f;
+        _markButton.Position = new Vector2(20, 20 + step);
+        _editButton.Position = new Vector2(20, 20 + step * 2);
+        _quitButton.Position = _touring ? new Vector2(20, 20 + step) : new Vector2(20, 20 + step * 3);
     }
 
     public override void _Process(double delta)
@@ -567,7 +576,7 @@ public partial class Main : Node3D
     private void OnTourPressed()
     {
         _touring = !_touring;
-        _tourButton.Text = _touring ? "Stop" : "Tour";
+        SetTourButtonTouring(_touring);
 
         if (_touring)
         {
@@ -588,7 +597,7 @@ public partial class Main : Node3D
         if (_tourPoints.Count == 0)
         {
             _touring = false;
-            _tourButton.Text = "Tour";
+            SetTourButtonTouring(false);
             return;
         }
 
@@ -756,7 +765,7 @@ public partial class Main : Node3D
         if (_touring)
         {
             _touring = false;
-            _tourButton.Text = "Tour";
+            SetTourButtonTouring(false);
             StopTour();
             UpdateButtonLayout();
         }
@@ -804,9 +813,6 @@ public partial class Main : Node3D
         }
     }
 
-    // Manual, engine-drag-free touch reorder path - see the comment on
-    // TourPointRow.ManualTouchDragStarted for why this exists instead of using
-    // ForceDrag/_CanDropData/_DropData for touch.
     private void OnManualTouchDragStarted(int index)
     {
         if (_manualDragIndex != null || index < 0 || index >= _tourPoints.Count)
@@ -907,29 +913,30 @@ public partial class Main : Node3D
 
     private void BuildPointsDialog(Theme theme)
     {
-        _pointsWindow = new EscapeCatchingWindow
+        _pointsWindow = new DraggableWindow
         {
             Title = "Editing Tour",
             Theme = theme,
             Size = new Vector2I(500, 480),
             MinSize = new Vector2I(300, 240),
             Visible = false,
-            Borderless = false,
             Unresizable = false
         };
         _pointsWindow.CloseRequested += _pointsWindow.Hide;
-        _pointsWindow.EscapePressed += _pointsWindow.Hide;
         _pointsWindow.TouchDragMoved += OnManualTouchDragMoved;
         _pointsWindow.TouchDragEnded += OnManualTouchDragEnded;
         AddChild(_pointsWindow);
 
+        // DraggableWindow builds its own background/border/title bar/close button/resize
+        // handles in _Ready() (which just ran via AddChild above) - only the actual dialog
+        // content is built here, into ContentArea. See DraggableWindow's usage notes.
         var margin = new MarginContainer();
-        margin.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        margin.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         margin.AddThemeConstantOverride("margin_left", 10);
         margin.AddThemeConstantOverride("margin_top", 10);
         margin.AddThemeConstantOverride("margin_right", 10);
         margin.AddThemeConstantOverride("margin_bottom", 10);
-        _pointsWindow.AddChild(margin);
+        _pointsWindow.ContentArea.AddChild(margin);
 
         var vbox = new VBoxContainer();
         vbox.AddThemeConstantOverride("separation", 8);
@@ -943,11 +950,20 @@ public partial class Main : Node3D
         _pointsScrollContainer = scroll;
         vbox.AddChild(scroll);
 
+        // Small gap between the row content (delete button on the right edge) and the
+        // scrollbar, which otherwise sits flush against it.
+        var listMargin = new MarginContainer
+        {
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+        };
+        listMargin.AddThemeConstantOverride("margin_right", 10);
+        scroll.AddChild(listMargin);
+
         _pointsListContainer = new VBoxContainer
         {
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
-        scroll.AddChild(_pointsListContainer);
+        listMargin.AddChild(_pointsListContainer);
 
         var bottomBar = new HBoxContainer
         {
@@ -957,11 +973,11 @@ public partial class Main : Node3D
         bottomBar.AddThemeConstantOverride("separation", 12);
         vbox.AddChild(bottomBar);
 
-        var resetButton = new Button { Text = "Reset" };
+        var resetButton = CreateIconButton("ResetButton", "reset", 180f);
         resetButton.Pressed += ResetTourPointsToDefaults;
         bottomBar.AddChild(resetButton);
 
-        var closeButton = new Button { Text = "Close" };
+        var closeButton = CreateIconButton("CloseButton", "close", 180f);
         closeButton.Pressed += _pointsWindow.Hide;
         bottomBar.AddChild(closeButton);
     }

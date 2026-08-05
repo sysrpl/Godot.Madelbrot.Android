@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+echo "Running from: $(pwd)"
+
+INKSCAPE="$HOME/Applications/Inkscape-ebf0e94-x86_64.AppImage"
+
+shopt -s nullglob
+
+for file in *.svg; do
+    echo "Input: $(realpath "$file")"
+
+    tmp=$(mktemp --suffix=.svg)
+
+    "$INKSCAPE" \
+        "$(realpath "$file")" \
+        --export-text-to-path \
+        --export-filename="$tmp"
+
+    mv "$tmp" "$file"
+
+    echo "Converted: $file"
+done

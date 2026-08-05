@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="350" height="90" viewBox="0 0 350 90">
+  <g opacity="0.75">
+    <rect x="1.5" y="1.5" width="347" height="87"
+          rx="18" ry="18"
+          fill="#232323" stroke="#5a5a5a" stroke-width="3"/>
+    <g transform="translate(58.875,12.0) scale(2.75)">
+      
+    <path d="M19.5 12a7.5 7.5 0 1 1 -2.4-5.5" fill="none" stroke="#5a5a5a" stroke-width="2.3" stroke-linecap="round"/>
+    <polygon points="19.8,3.8 19.8,8.6 15,8.6" fill="#5a5a5a"/>
+    
+    </g>
+    <text x="144.875" y="45.0" dy="17.0" text-anchor="start"
+          font-family="Verdana, 'DejaVu Sans', Arial, sans-serif" font-size="50" font-weight="700"
+          fill="#8a8a8a" letter-spacing="0.5">Reset</text>
+  </g>
+</svg>

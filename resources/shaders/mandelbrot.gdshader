@@ -20,26 +20,16 @@ const vec3 PALETTE[PALETTE_COUNT] = vec3[](
 	vec3(0.52, 0.22, 0.13)  // rust / maroon, blends back into navy
 );
 
-// Catmull-Rom spline through 4 control points, evaluated at t in [0, 1] between p1 and p2.
-// Unlike linear (or smoothstep-eased linear) interpolation between just two stops, this
-// keeps both value and rate of change continuous across every stop boundary, since each
-// segment is shaped by its neighbors on both sides rather than eased independently.
-vec3 catmullRom(vec3 p0, vec3 p1, vec3 p2, vec3 p3, float t) {
-	vec3 a = 2.0 * p1;
-	vec3 b = p2 - p0;
-	vec3 c = 2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3;
-	vec3 d = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
-	return 0.5 * (a + b * t + c * t * t + d * t * t * t);
-}
-
 vec3 palette(float t) {
 	float scaled = fract(t) * float(PALETTE_COUNT);
-	int i1 = int(scaled) % PALETTE_COUNT;
-	int i0 = (i1 - 1 + PALETTE_COUNT) % PALETTE_COUNT;
-	int i2 = (i1 + 1) % PALETTE_COUNT;
-	int i3 = (i1 + 2) % PALETTE_COUNT;
-	float localT = fract(scaled);
-	return catmullRom(PALETTE[i0], PALETTE[i1], PALETTE[i2], PALETTE[i3], localT);
+	int i0 = int(scaled) % PALETTE_COUNT;
+	int i1 = (i0 + 1) % PALETTE_COUNT;
+	// smoothstep instead of a raw linear factor: each segment eases in/out with zero
+	// slope at both ends, so the rate of change matches up across stop boundaries instead
+	// of kinking there (which the eye reads as a faint band even though the color itself
+	// is already continuous).
+	float blend = smoothstep(0.0, 1.0, fract(scaled));
+	return mix(PALETTE[i0], PALETTE[i1], blend);
 }
 
 void fragment() {

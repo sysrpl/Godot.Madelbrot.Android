@@ -1,6 +1,58 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
+
+// A Window is its own Viewport, and Godot only delivers _Input to nodes belonging to
+// whichever viewport currently has focus - Main (in the main game viewport) never sees key
+// events while this dialog has focus. This subclass catches Escape within its own viewport.
+public partial class EscapeCatchingWindow : Window
+{
+	public event Action EscapePressed;
+
+	public override void _Input(InputEvent @event)
+	{
+		if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo && keyEvent.Keycode == Key.Escape)
+		{
+			EscapePressed?.Invoke();
+			GetViewport().SetInputAsHandled();
+		}
+	}
+}
+
+// One row in the tour points list. Drag-and-drop reordering needs _GetDragData/_CanDropData/
+// _DropData, which are virtual methods only reachable via a proper Control subclass.
+public partial class TourPointRow : HBoxContainer
+{
+	public int Index;
+	public string PreviewText;
+	public Action<TourPointRow, bool> ShowDropIndicator;
+	public Action<int, int> ReorderRequested;
+
+	public override Variant _GetDragData(Vector2 atPosition)
+	{
+		SetDragPreview(new Label { Text = PreviewText });
+		return Index;
+	}
+
+	public override bool _CanDropData(Vector2 atPosition, Variant data)
+	{
+		if (data.VariantType != Variant.Type.Int)
+		{
+			return false;
+		}
+
+		ShowDropIndicator?.Invoke(this, atPosition.Y < Size.Y / 2.0f);
+		return true;
+	}
+
+	public override void _DropData(Vector2 atPosition, Variant data)
+	{
+		int fromIndex = data.AsInt32();
+		int toIndex = atPosition.Y < Size.Y / 2.0f ? Index : Index + 1;
+		ReorderRequested?.Invoke(fromIndex, toIndex);
+	}
+}
 
 public partial class Main : Node3D
 {
@@ -21,6 +73,16 @@ public partial class Main : Node3D
 		public static DVector2 operator +(DVector2 a, DVector2 b) => new(a.X + b.X, a.Y + b.Y);
 		public static DVector2 operator -(DVector2 a, DVector2 b) => new(a.X - b.X, a.Y - b.Y);
 		public static DVector2 operator *(DVector2 a, double s) => new(a.X * s, a.Y * s);
+	}
+
+	// A single user-defined (or default) tour stop. Stored as JSON in user:// so it survives
+	// across runs and can be hand-edited too.
+	private class TourPointData
+	{
+		public double PanX { get; set; }
+		public double PanY { get; set; }
+		public double Zoom { get; set; }
+		public float Rotation { get; set; }
 	}
 
 	private const float ZoomAnimationSeconds = 0.3f;
@@ -52,18 +114,22 @@ public partial class Main : Node3D
 	// Both pairs are one hold plus one zoom leg, so they share this duration.
 	private const double TourRotationTransitionSeconds = TourHoldSeconds + TourZoomLegSeconds;
 
+	private const string TourPointsFilePath = "user://tour_points.json";
+
 	// Documented, named locations in the Mandelbrot set (center coordinate sourced from
 	// mrob.com's Mu-Ency encyclopedia and the sci.fractals FAQ; zoom level chosen to frame
 	// each feature). Coordinates with a published magnification convert as zoom = 3 / width.
-	private static readonly (Vector2 Pan, float Zoom)[] TourPoints =
+	// Rotation is 180 on every default point to reproduce the tour's original fixed
+	// 180 -> 0 -> 180 oscillation exactly when the user resets back to these.
+	private static List<TourPointData> CreateDefaultTourPoints() => new()
 	{
-		(new Vector2(0.27205f, 0.006118f), 70.0f),      // Elephant Valley
-		(new Vector2(-0.7451968f, 0.1018699f), 38.0f),  // Seahorse Valley
-		(new Vector2(-0.74548f, 0.11669f), 470.0f),     // Seahorse Valley cusp
-		(new Vector2(-0.0875937f, 0.6550903f), 100.0f), // Triple Spiral Valley
-		(new Vector2(-1.36f, 0.005f), 90.0f),           // Scepter Valley
-		(new Vector2(-1.401155f, 0.0f), 120.0f),        // Myrberg-Feigenbaum point
-		(new Vector2(-1.75f, 0.0f), 60.0f),             // Mini-Mandelbrot at the period-3 bulb
+		new TourPointData { PanX = 0.27205, PanY = 0.006118, Zoom = 70.0, Rotation = 180.0f },      // Elephant Valley
+		new TourPointData { PanX = -0.7451968, PanY = 0.1018699, Zoom = 38.0, Rotation = 180.0f },  // Seahorse Valley
+		new TourPointData { PanX = -0.74548, PanY = 0.11669, Zoom = 470.0, Rotation = 180.0f },     // Seahorse Valley cusp
+		new TourPointData { PanX = -0.0875937, PanY = 0.6550903, Zoom = 100.0, Rotation = 180.0f }, // Triple Spiral Valley
+		new TourPointData { PanX = -1.36, PanY = 0.005, Zoom = 90.0, Rotation = 180.0f },           // Scepter Valley
+		new TourPointData { PanX = -1.401155, PanY = 0.0, Zoom = 120.0, Rotation = 180.0f },        // Myrberg-Feigenbaum point
+		new TourPointData { PanX = -1.75, PanY = 0.0, Zoom = 60.0, Rotation = 180.0f },             // Mini-Mandelbrot at the period-3 bulb
 	};
 
 	// On Android, tweening the manual pinch-zoom is extra render load for little benefit on
@@ -84,6 +150,13 @@ public partial class Main : Node3D
 	private Tween _tourTween;
 	private Tween _tourRotationTween;
 	private Button _tourButton;
+	private Button _quitButton;
+	private Button _markButton;
+	private Button _editButton;
+	private List<TourPointData> _tourPoints = new();
+	private EscapeCatchingWindow _pointsWindow;
+	private VBoxContainer _pointsListContainer;
+	private readonly List<ColorRect> _dropGaps = new();
 	private readonly Dictionary<int, Vector2> _touches = new();
 	private float _lastPinchDistance;
 	private float _lastTouchRotationAngle;
@@ -94,6 +167,11 @@ public partial class Main : Node3D
 	public override void _Ready()
 	{
 		var ui = GetNode<CanvasLayer>("UI");
+
+		// Set explicitly on every Control rather than relying solely on the project's default
+		// theme setting (gui/theme/custom), since CanvasLayer isn't a Control and can't
+		// propagate a theme down to the buttons parented under it.
+		var theme = GD.Load<Theme>("res://resources/themes/minimal.tres");
 
 		_shaderMaterial = new ShaderMaterial
 		{
@@ -118,6 +196,7 @@ public partial class Main : Node3D
 		{
 			Name = "TourButton",
 			Text = "Tour",
+			Theme = theme,
 			Position = new Vector2(20, 20),
 			Size = new Vector2(140, 60)
 		};
@@ -125,28 +204,90 @@ public partial class Main : Node3D
 		_tourButton.Pressed += OnTourPressed;
 		ui.AddChild(_tourButton);
 
-		var quitButton = new Button
+		_markButton = new Button
+		{
+			Name = "MarkButton",
+			Text = "Mark",
+			Theme = theme,
+			Size = new Vector2(140, 60)
+		};
+		_markButton.AddThemeFontSizeOverride("font_size", 28);
+		_markButton.Pressed += MarkTourPoint;
+		ui.AddChild(_markButton);
+
+		_editButton = new Button
+		{
+			Name = "EditButton",
+			Text = "Edit",
+			Theme = theme,
+			Size = new Vector2(140, 60)
+		};
+		_editButton.AddThemeFontSizeOverride("font_size", 28);
+		_editButton.Pressed += OnPointsButtonPressed;
+		ui.AddChild(_editButton);
+
+		_quitButton = new Button
 		{
 			Name = "QuitButton",
 			Text = "Quit",
-			Position = new Vector2(20, 90),
+			Theme = theme,
 			Size = new Vector2(140, 60)
 		};
-		quitButton.AddThemeFontSizeOverride("font_size", 28);
-		quitButton.Pressed += OnQuitPressed;
-		ui.AddChild(quitButton);
+		_quitButton.AddThemeFontSizeOverride("font_size", 28);
+		_quitButton.Pressed += OnQuitPressed;
+		ui.AddChild(_quitButton);
+
+		LoadTourPoints();
+		BuildPointsDialog(theme);
+		UpdateButtonLayout();
+	}
+
+	// Idle: Tour, Mark, Edit, Quit stacked in that order. While touring: Mark/Edit hide
+	// (marking/editing points mid-tour doesn't make sense) and Quit moves up to sit
+	// directly below Tour.
+	private void UpdateButtonLayout()
+	{
+		_markButton.Visible = !_touring;
+		_editButton.Visible = !_touring;
+
+		_markButton.Position = new Vector2(20, 90);
+		_editButton.Position = new Vector2(20, 160);
+		_quitButton.Position = _touring ? new Vector2(20, 90) : new Vector2(20, 230);
 	}
 
 	public override void _Process(double delta)
 	{
 		UpdateFramerate();
+
+		if (_pointsWindow != null && _pointsWindow.Visible && !_pointsWindow.GuiIsDragging())
+		{
+			// Safety net: clears any lit drop gap regardless of how the drag ended (dropped
+			// on a row, dropped outside the list, cancelled), since that's simpler than trying
+			// to catch every one of those cases individually.
+			ClearDropGaps();
+		}
 	}
 
 	public override void _Input(InputEvent @event)
 	{
-		if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo && keyEvent.Keycode == Key.F2)
+		if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo)
 		{
-			TakeScreenshot();
+			if (keyEvent.Keycode == Key.F2)
+			{
+				TakeScreenshot();
+			}
+			else if (keyEvent.Keycode == Key.Escape)
+			{
+				if (_pointsWindow.Visible)
+				{
+					_pointsWindow.Hide();
+				}
+				else
+				{
+					GetTree().Quit();
+				}
+				return;
+			}
 		}
 
 		if (_touring)
@@ -423,7 +564,8 @@ public partial class Main : Node3D
 	private void UpdateFramerate()
 	{
 		double elapsedSeconds = (Time.GetTicksMsec() - _lastInteractionTicksMsec) / 1000.0;
-		bool active = _touring || elapsedSeconds < UnthrottleSeconds;
+		bool dialogOpen = _pointsWindow != null && _pointsWindow.Visible;
+		bool active = _touring || dialogOpen || elapsedSeconds < UnthrottleSeconds;
 		Engine.MaxFps = active ? ActiveFps : IdleFps;
 	}
 
@@ -440,21 +582,32 @@ public partial class Main : Node3D
 		{
 			StopTour();
 		}
+
+		// StartTour() may revert _touring back to false (e.g. an empty points list), so
+		// this reads the final state rather than assuming the toggle above stuck.
+		UpdateButtonLayout();
 	}
 
 	private void StartTour()
 	{
+		if (_tourPoints.Count == 0)
+		{
+			_touring = false;
+			_tourButton.Text = "Tour";
+			return;
+		}
+
 		_dragging = false;
 		_rotatingWithMouse = false;
 		_touches.Clear();
 		_lastPinchDistance = 0.0f;
 
-		// A manual zoom might still be mid-animation; snap it to its target so it
-		// doesn't keep fighting the tour tween over _zoom/_panOffset.
+		// A manual zoom might still be mid-animation; snap it to its target so it doesn't
+		// keep fighting the tour tween over _zoom/_panOffset. Rotation is left as-is (not
+		// reset) so the first leg's fall-to-0 starts from wherever the user left it.
 		_zoomTween?.Kill();
 		_zoom = _targetZoom;
 		_panOffset = _targetPanOffset;
-		SetRotationValue(0.0f);
 
 		_tourIndex = 0;
 		MarkInteraction();
@@ -466,17 +619,24 @@ public partial class Main : Node3D
 		_tourTween?.Kill();
 		_tourRotationTween?.Kill();
 
-		// Keep the manual pan/zoom targets in sync with wherever the tour left off.
+		// Keep the manual pan/zoom targets in sync with wherever the tour left off. Rotation
+		// is left as-is (not reset to 0) so stopping the tour keeps whatever orientation the
+		// current point of interest was arrived at.
 		_targetZoom = _zoom;
 		_targetPanOffset = _panOffset;
-		SetRotationValue(0.0f);
 		MarkInteraction();
 	}
 
 	private void PlayTourStep()
 	{
-		var (targetPan, targetZoom) = TourPoints[_tourIndex];
-		DVector2 targetPanD = new(targetPan.X, targetPan.Y);
+		if (_tourPoints.Count == 0)
+		{
+			return;
+		}
+
+		TourPointData point = _tourPoints[_tourIndex];
+		DVector2 targetPanD = new(point.PanX, point.PanY);
+		double targetZoomD = point.Zoom;
 
 		_tourTween?.Kill();
 		_tourTween = CreateTween();
@@ -491,22 +651,23 @@ public partial class Main : Node3D
 		TweenPanTo(_tourTween, targetPanD, TourPanLegSeconds);
 
 		// (D) Zoom in to the point of interest's best view.
-		TweenZoomTo(_tourTween, targetZoom, TourZoomLegSeconds);
+		TweenZoomTo(_tourTween, targetZoomD, TourZoomLegSeconds);
 
 		// (E) Hold at the new point of interest.
 		_tourTween.TweenInterval(TourHoldSeconds);
 
-		// Rotation runs on its own timeline, independent of the zoom/pan phases: starts at 180
-		// and eases to 0 across the combined span of (A) and (B), holds at 0 through (C), then
-		// eases back to 180 across the combined span of (D) and (E).
-		SetRotationValue(180.0f);
+		// Rotation runs on its own timeline, independent of the zoom/pan phases: eases from
+		// wherever it currently is (the previous point's stored rotation) down to 0 across
+		// the combined span of (A) and (B), holds at 0 through (C), then eases up to this
+		// point's stored rotation across the combined span of (D) and (E).
+		float rotationAtLegStart = _rotation;
 
 		_tourRotationTween?.Kill();
 		_tourRotationTween = CreateTween();
-		_tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), 180.0f, 0.0f, TourRotationTransitionSeconds) // (A)+(B) fall to 0
+		_tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), rotationAtLegStart, 0.0f, TourRotationTransitionSeconds) // (A)+(B) fall to 0
 			.SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.InOut);
 		_tourRotationTween.TweenInterval(TourPanLegSeconds); // (C) hold at 0
-		_tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), 0.0f, 180.0f, TourRotationTransitionSeconds) // (D)+(E) rise to 180
+		_tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), 0.0f, point.Rotation, TourRotationTransitionSeconds) // (D)+(E) rise to this point's rotation
 			.SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.InOut);
 
 		_tourTween.Finished += OnTourStepFinished;
@@ -514,13 +675,281 @@ public partial class Main : Node3D
 
 	private void OnTourStepFinished()
 	{
-		if (!_touring)
+		if (!_touring || _tourPoints.Count == 0)
 		{
 			return;
 		}
 
-		_tourIndex = (_tourIndex + 1) % TourPoints.Length;
+		_tourIndex = (_tourIndex + 1) % _tourPoints.Count;
 		PlayTourStep();
+	}
+
+	private void LoadTourPoints()
+	{
+		string path = ProjectSettings.GlobalizePath(TourPointsFilePath);
+		if (System.IO.File.Exists(path))
+		{
+			try
+			{
+				string json = System.IO.File.ReadAllText(path);
+				var loaded = JsonSerializer.Deserialize<List<TourPointData>>(json);
+				if (loaded != null && loaded.Count > 0)
+				{
+					_tourPoints = loaded;
+					return;
+				}
+			}
+			catch (Exception)
+			{
+				// Corrupt or hand-edited-wrong: fall back to the defaults below.
+			}
+		}
+
+		_tourPoints = CreateDefaultTourPoints();
+	}
+
+	private static readonly JsonSerializerOptions TourPointsJsonOptions = new() { WriteIndented = true };
+
+	private void SaveTourPoints()
+	{
+		string path = ProjectSettings.GlobalizePath(TourPointsFilePath);
+		string json = JsonSerializer.Serialize(_tourPoints, TourPointsJsonOptions);
+		System.IO.File.WriteAllText(path, json);
+	}
+
+	private void ResetTourPointsToDefaults()
+	{
+		_tourPoints = CreateDefaultTourPoints();
+		_tourIndex = 0;
+		SaveTourPoints();
+		RefreshPointsDialog();
+	}
+
+	// Captures the current view (pan, zoom, rotation) as a new tour stop, appended to the end.
+	private void MarkTourPoint()
+	{
+		_tourPoints.Add(new TourPointData
+		{
+			PanX = _targetPanOffset.X,
+			PanY = _targetPanOffset.Y,
+			Zoom = _targetZoom,
+			Rotation = _rotation
+		});
+		SaveTourPoints();
+		RefreshPointsDialog();
+	}
+
+	private void OnPointsButtonPressed()
+	{
+		RefreshPointsDialog();
+
+		Vector2I viewportSize = (Vector2I)GetViewport().GetVisibleRect().Size;
+		_pointsWindow.Position = (viewportSize - _pointsWindow.Size) / 2;
+
+		_pointsWindow.Show();
+	}
+
+	// Jumps directly to a stored point (no animation - this is a curation/preview action,
+	// not part of the scripted tour), stopping the tour first if one is running.
+	private void GoToTourPoint(int index)
+	{
+		if (index < 0 || index >= _tourPoints.Count)
+		{
+			return;
+		}
+
+		if (_touring)
+		{
+			_touring = false;
+			_tourButton.Text = "Tour";
+			StopTour();
+			UpdateButtonLayout();
+		}
+
+		TourPointData point = _tourPoints[index];
+		_targetPanOffset = new DVector2(point.PanX, point.PanY);
+		_targetZoom = point.Zoom;
+		_panOffset = _targetPanOffset;
+		_zoom = _targetZoom;
+		SetRotationValue(point.Rotation);
+		MarkInteraction();
+	}
+
+	// Moves the point at fromIndex so it ends up at toIndex (as measured before removal -
+	// e.g. dropping "above" row 3 means toIndex=3, "below" row 3 means toIndex=4).
+	private void ReorderTourPoint(int fromIndex, int toIndex)
+	{
+		if (fromIndex < 0 || fromIndex >= _tourPoints.Count)
+		{
+			return;
+		}
+
+		TourPointData moved = _tourPoints[fromIndex];
+		_tourPoints.RemoveAt(fromIndex);
+
+		if (toIndex > fromIndex)
+		{
+			toIndex--;
+		}
+		toIndex = Math.Clamp(toIndex, 0, _tourPoints.Count);
+
+		_tourPoints.Insert(toIndex, moved);
+		SaveTourPoints();
+		RefreshPointsDialog();
+	}
+
+	private void ShowDropIndicator(TourPointRow row, bool above)
+	{
+		int gapIndex = above ? row.Index : row.Index + 1;
+		for (int i = 0; i < _dropGaps.Count; i++)
+		{
+			Color c = _dropGaps[i].Color;
+			c.A = i == gapIndex ? 1f : 0f;
+			_dropGaps[i].Color = c;
+		}
+	}
+
+	private void DeleteTourPoint(int index)
+	{
+		if (index < 0 || index >= _tourPoints.Count)
+		{
+			return;
+		}
+
+		_tourPoints.RemoveAt(index);
+		if (_tourIndex >= _tourPoints.Count)
+		{
+			_tourIndex = 0;
+		}
+		SaveTourPoints();
+		RefreshPointsDialog();
+	}
+
+	private void BuildPointsDialog(Theme theme)
+	{
+		_pointsWindow = new EscapeCatchingWindow
+		{
+			Title = "Tour Points",
+			Theme = theme,
+			Size = new Vector2I(860, 480),
+			Visible = false,
+			Borderless = false
+		};
+		_pointsWindow.CloseRequested += _pointsWindow.Hide;
+		_pointsWindow.EscapePressed += _pointsWindow.Hide;
+		AddChild(_pointsWindow);
+
+		var margin = new MarginContainer();
+		margin.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+		margin.AddThemeConstantOverride("margin_left", 10);
+		margin.AddThemeConstantOverride("margin_top", 10);
+		margin.AddThemeConstantOverride("margin_right", 10);
+		margin.AddThemeConstantOverride("margin_bottom", 10);
+		_pointsWindow.AddChild(margin);
+
+		var vbox = new VBoxContainer();
+		vbox.AddThemeConstantOverride("separation", 8);
+		margin.AddChild(vbox);
+
+		var scroll = new ScrollContainer
+		{
+			SizeFlagsVertical = Control.SizeFlags.ExpandFill
+		};
+		vbox.AddChild(scroll);
+
+		_pointsListContainer = new VBoxContainer
+		{
+			SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+		};
+		scroll.AddChild(_pointsListContainer);
+
+		var bottomBar = new HBoxContainer
+		{
+			Alignment = BoxContainer.AlignmentMode.Center,
+			SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+		};
+		bottomBar.AddThemeConstantOverride("separation", 12);
+		vbox.AddChild(bottomBar);
+
+		var resetButton = new Button { Text = "Reset to Defaults" };
+		resetButton.Pressed += ResetTourPointsToDefaults;
+		bottomBar.AddChild(resetButton);
+
+		var closeButton = new Button { Text = "Close" };
+		closeButton.Pressed += _pointsWindow.Hide;
+		bottomBar.AddChild(closeButton);
+	}
+
+	private ColorRect CreateDropGap()
+	{
+		var gap = new ColorRect
+		{
+			Color = new Color(0.97f, 0.8f, 0.2f, 0f),
+			CustomMinimumSize = new Vector2(0, 6)
+		};
+		_dropGaps.Add(gap);
+		return gap;
+	}
+
+	private void ClearDropGaps()
+	{
+		foreach (ColorRect gap in _dropGaps)
+		{
+			Color c = gap.Color;
+			if (c.A != 0f)
+			{
+				c.A = 0f;
+				gap.Color = c;
+			}
+		}
+	}
+
+	private void RefreshPointsDialog()
+	{
+		foreach (Node child in _pointsListContainer.GetChildren())
+		{
+			child.QueueFree();
+		}
+
+		_dropGaps.Clear();
+
+		// A fixed-size gap sits before every row (plus one trailing gap after the last), all
+		// normally transparent. Highlighting one as a drop hint only toggles its color, never
+		// its size, so rows never reflow/bounce while dragging.
+		_pointsListContainer.AddChild(CreateDropGap());
+
+		for (int i = 0; i < _tourPoints.Count; i++)
+		{
+			int index = i; // captured per-row for the button closures below
+			TourPointData point = _tourPoints[i];
+			string pointText = $"{i + 1}. ({point.PanX:F4}, {point.PanY:F4})  zoom {point.Zoom:F1}x  rot {point.Rotation:F0}°";
+
+			var row = new TourPointRow
+			{
+				Index = index,
+				PreviewText = pointText,
+				ShowDropIndicator = ShowDropIndicator,
+				ReorderRequested = ReorderTourPoint
+			};
+
+			var label = new Label
+			{
+				Text = pointText,
+				SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+			};
+			row.AddChild(label);
+
+			var goButton = new Button { Text = "▶" };
+			goButton.Pressed += () => GoToTourPoint(index);
+			row.AddChild(goButton);
+
+			var deleteButton = new Button { Text = "✕" };
+			deleteButton.Pressed += () => DeleteTourPoint(index);
+			row.AddChild(deleteButton);
+
+			_pointsListContainer.AddChild(row);
+			_pointsListContainer.AddChild(CreateDropGap());
+		}
 	}
 
 	private void SetRotationValue(float degrees)

@@ -153,6 +153,7 @@ public partial class Main : Node3D
 	private Button _quitButton;
 	private Button _markButton;
 	private Button _editButton;
+	private Label _statsLabel;
 	private List<TourPointData> _tourPoints = new();
 	private EscapeCatchingWindow _pointsWindow;
 	private VBoxContainer _pointsListContainer;
@@ -237,6 +238,25 @@ public partial class Main : Node3D
 		_quitButton.Pressed += OnQuitPressed;
 		ui.AddChild(_quitButton);
 
+		_statsLabel = new Label
+		{
+			Name = "StatsLabel",
+			Theme = theme,
+			HorizontalAlignment = HorizontalAlignment.Center,
+			VerticalAlignment = VerticalAlignment.Center
+		};
+		_statsLabel.AddThemeFontSizeOverride("font_size", IsAndroid ? 20 : 14);
+		_statsLabel.AddThemeColorOverride("font_shadow_color", new Color(0, 0, 0, 0.85f));
+		_statsLabel.AddThemeConstantOverride("shadow_offset_x", 0);
+		_statsLabel.AddThemeConstantOverride("shadow_offset_y", 0);
+		_statsLabel.AddThemeConstantOverride("shadow_outline_size", 6);
+		_statsLabel.SetAnchorsPreset(Control.LayoutPreset.BottomWide);
+		_statsLabel.OffsetTop = -36;
+		_statsLabel.OffsetBottom = 0;
+		_statsLabel.OffsetLeft = 20;
+		_statsLabel.OffsetRight = -20;
+		ui.AddChild(_statsLabel);
+
 		LoadTourPoints();
 		BuildPointsDialog(theme);
 		UpdateButtonLayout();
@@ -258,6 +278,7 @@ public partial class Main : Node3D
 	public override void _Process(double delta)
 	{
 		UpdateFramerate();
+		UpdateStatsLabel();
 
 		if (_pointsWindow != null && _pointsWindow.Visible && !_pointsWindow.GuiIsDragging())
 		{
@@ -272,7 +293,13 @@ public partial class Main : Node3D
 	{
 		if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo)
 		{
-			if (keyEvent.Keycode == Key.F2)
+			if (keyEvent.Keycode == Key.F1)
+			{
+				DisplayServer.WindowSetMode(DisplayServer.WindowGetMode() == DisplayServer.WindowMode.Fullscreen
+					? DisplayServer.WindowMode.Windowed
+					: DisplayServer.WindowMode.Fullscreen);
+			}
+			else if (keyEvent.Keycode == Key.F2)
 			{
 				TakeScreenshot();
 			}
@@ -569,6 +596,12 @@ public partial class Main : Node3D
 		Engine.MaxFps = active ? ActiveFps : IdleFps;
 	}
 
+	private void UpdateStatsLabel()
+	{
+		double fps = Engine.GetFramesPerSecond();
+		_statsLabel.Text = $"{fps:F0} fps   ({_panOffset.X:F4}, {_panOffset.Y:F4})   zoom {_zoom:F1}x";
+	}
+
 	private void OnTourPressed()
 	{
 		_touring = !_touring;
@@ -832,8 +865,10 @@ public partial class Main : Node3D
 			Title = "Tour Points",
 			Theme = theme,
 			Size = new Vector2I(860, 480),
+			MinSize = new Vector2I(420, 240),
 			Visible = false,
-			Borderless = false
+			Borderless = false,
+			Unresizable = false
 		};
 		_pointsWindow.CloseRequested += _pointsWindow.Hide;
 		_pointsWindow.EscapePressed += _pointsWindow.Hide;
@@ -853,7 +888,8 @@ public partial class Main : Node3D
 
 		var scroll = new ScrollContainer
 		{
-			SizeFlagsVertical = Control.SizeFlags.ExpandFill
+			SizeFlagsVertical = Control.SizeFlags.ExpandFill,
+			HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled
 		};
 		vbox.AddChild(scroll);
 
@@ -935,7 +971,9 @@ public partial class Main : Node3D
 			var label = new Label
 			{
 				Text = pointText,
-				SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+				SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+				ClipText = true,
+				TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis
 			};
 			row.AddChild(label);
 

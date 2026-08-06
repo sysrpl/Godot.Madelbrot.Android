@@ -108,10 +108,6 @@ godot --headless --export-release "Linux" builds/linux/mandelbrot.x86_64
 godot --headless --export-release "Android" builds/android/mandelbrot.apk
 ```
 
-Android release builds are signed with `keystores/release.keystore` (gitignored,
-not included in the repo); its password lives in `.godot/export_credentials.cfg`,
-Godot's own mechanism for keeping export secrets out of version control.
-
 ## Project layout
 
 - `Main.tscn` / `Main.cs` - the scene root and all pan/zoom/rotation/tour/UI logic

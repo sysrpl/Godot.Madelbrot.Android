@@ -87,11 +87,11 @@ in the bottom-left corner opens the help dialog.
 
 ## Running
 
-To build simply type ```dotnet build```  
+To build simply type ```dotnet build```
 
 To run type ```godot```
 
-To run on your Android on your USB connected device type ```./deploy.sh``` and the demo will be transferred and run. 
+To run on your Android USB connected device type ```./deploy.sh``` and the demo will be transferred and run.
 
 ## Project layout
 

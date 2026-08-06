@@ -68,6 +68,7 @@ public partial class Main : Node3D
     private const double TourRotationTransitionSeconds = TourHoldSeconds + TourZoomLegSeconds;
 
     private const string TourPointsFilePath = "user://tour_points.json";
+    private const string HelpShownFilePath = "user://help_shown.flag";
 
     // Documented, named locations in the Mandelbrot set (center coordinate sourced from
     // mrob.com's Mu-Ency encyclopedia and the sci.fractals FAQ; zoom level chosen to frame
@@ -116,7 +117,7 @@ public partial class Main : Node3D
     private static TextureButton CreateIconButton(string name, string prefix, float width)
     {
         var size = new Vector2(width, width * ButtonSvgAspect);
-        return new TextureButton
+        var button = new TextureButton
         {
             Name = name,
             TextureNormal = GD.Load<Texture2D>($"res://resources/buttons/{prefix}_normal.svg"),
@@ -128,6 +129,8 @@ public partial class Main : Node3D
             CustomMinimumSize = size,
             Size = size
         };
+        button.AttachClickFlash();
+        return button;
     }
 
     private void SetTourButtonTouring(bool touring)
@@ -157,8 +160,12 @@ public partial class Main : Node3D
     private TextureButton _markButton;
     private TextureButton _editButton;
     private Label _statsLabel;
+    private CanvasLayer _uiLayer;
+    private Label _toastLabel;
+    private Tween _toastTween;
     private List<TourPointData> _tourPoints = new();
     private DraggableWindow _pointsWindow;
+    private DraggableWindow _helpWindow;
     private ScrollContainer _pointsScrollContainer;
     private float _pointsScrollRemainder;
     private VBoxContainer _pointsListContainer;
@@ -175,7 +182,8 @@ public partial class Main : Node3D
 
     public override void _Ready()
     {
-        var ui = GetNode<CanvasLayer>("UI");
+        _uiLayer = GetNode<CanvasLayer>("UI");
+        var ui = _uiLayer;
 
         // Set explicitly on every Control rather than relying solely on the project's default
         // theme setting (gui/theme/custom), since CanvasLayer isn't a Control and can't
@@ -239,25 +247,9 @@ public partial class Main : Node3D
 
         LoadTourPoints();
         BuildPointsDialog(theme);
+        BuildHelpDialog(theme);
+        BuildHelpButton();
         UpdateButtonLayout();
-
-        GetTree().Root.SizeChanged += OnScreenSizeChanged;
-    }
-
-    // On Android, an orientation change resizes the root window/viewport (portrait <->
-    // landscape), which is what this reacts to. Resizes the dialog to 80% of the new width
-    // first, then centers it - centering has to happen second since it depends on the
-    // dialog's (new) size.
-    private void OnScreenSizeChanged()
-    {
-        if (!IsAndroid || _pointsWindow == null || !_pointsWindow.Visible)
-        {
-            return;
-        }
-
-        Vector2I viewportSize = (Vector2I)GetViewport().GetVisibleRect().Size;
-        _pointsWindow.Size = new Vector2I((int)(viewportSize.X * 0.8f), _pointsWindow.Size.Y);
-        _pointsWindow.Position = (viewportSize - _pointsWindow.Size) / 2;
     }
 
     // Idle: Tour, Mark, Edit, Quit stacked in that order. While touring: Mark/Edit hide
@@ -315,7 +307,11 @@ public partial class Main : Node3D
             }
         }
 
-        if (_touring)
+        // The dimmed backdrop shown behind an open dialog (DraggableWindow.DimBackground)
+        // blocks GUI-input clicks on the buttons behind it, but that doesn't cover this
+        // Node-level _Input handling - drag/wheel/pinch/rotate would otherwise still reach the
+        // Mandelbrot view underneath a dialog that's supposedly modal.
+        if (_touring || IsAnyDialogOpen())
             return;
 
         if (input is InputEventMouseButton mouseButton)
@@ -558,13 +554,20 @@ public partial class Main : Node3D
 
     // Renders at ActiveFps for UnthrottleSeconds after the last pan/zoom (or continuously
     // while touring), and drops to IdleFps otherwise, to avoid burning power redrawing a
-    // static Mandelbrot view.
+    // static Mandelbrot view. Also stays unthrottled for as long as the toast or any button's
+    // click-flash is mid-animation, since those Tweens would otherwise only advance at IdleFps
+    // and visibly stutter.
     private void UpdateFramerate()
     {
         double elapsedSeconds = (Time.GetTicksMsec() - _lastInteractionTicksMsec) / 1000.0;
-        bool dialogOpen = _pointsWindow != null && _pointsWindow.Visible;
-        bool active = _touring || dialogOpen || elapsedSeconds < UnthrottleSeconds;
+        bool toastActive = _toastTween != null && _toastTween.IsRunning();
+        bool active = _touring || IsAnyDialogOpen() || toastActive || ButtonFlash.IsAnyFlashing || elapsedSeconds < UnthrottleSeconds;
         Engine.MaxFps = active ? ActiveFps : IdleFps;
+    }
+
+    private bool IsAnyDialogOpen()
+    {
+        return (_pointsWindow != null && _pointsWindow.Visible) || (_helpWindow != null && _helpWindow.Visible);
     }
 
     private void UpdateStatsLabel()
@@ -741,6 +744,54 @@ public partial class Main : Node3D
         });
         SaveTourPoints();
         RefreshPointsDialog();
+        ShowToast("New marker added to tour");
+    }
+
+    // Brief center-screen notification: fades in, holds, fades out. The background rectangle
+    // is sized by the Label's own "normal" stylebox content margins (2px), so it's always
+    // exactly as wide/tall as the current message, not a fixed size.
+    private void ShowToast(string message)
+    {
+        if (_toastLabel == null)
+        {
+            _toastLabel = new Label
+            {
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                Modulate = new Color(1f, 1f, 1f, 0f)
+            };
+            var style = new StyleBoxFlat
+            {
+                BgColor = new Color(0.129412f, 0.109804f, 0.098039f, 1f),
+                ContentMarginLeft = 20,
+                ContentMarginTop = 20,
+                ContentMarginRight = 20,
+                ContentMarginBottom = 20,
+                CornerRadiusTopLeft = 8,
+                CornerRadiusTopRight = 8,
+                CornerRadiusBottomLeft = 8,
+                CornerRadiusBottomRight = 8
+            };
+            _toastLabel.AddThemeStyleboxOverride("normal", style);
+            _toastLabel.AddThemeColorOverride("font_color", Colors.White);
+            _toastLabel.AddThemeFontSizeOverride("font_size", 20);
+            _uiLayer.AddChild(_toastLabel);
+        }
+
+        _toastLabel.Text = message;
+
+        Vector2 minSize = _toastLabel.GetMinimumSize();
+        _toastLabel.Size = minSize;
+        Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+        _toastLabel.Position = ((viewportSize - minSize) / 2f).Round();
+
+        _toastTween?.Kill();
+        _toastLabel.Modulate = new Color(1f, 1f, 1f, 0f);
+        _toastTween = CreateTween();
+        _toastTween.TweenProperty(_toastLabel, "modulate:a", 1f, 0.2).SetTrans(Tween.TransitionType.Linear);
+        _toastTween.TweenInterval(2.0);
+        _toastTween.TweenProperty(_toastLabel, "modulate:a", 0f, 0.2).SetTrans(Tween.TransitionType.Linear);
     }
 
     private void OnPointsButtonPressed()
@@ -982,6 +1033,134 @@ public partial class Main : Node3D
         bottomBar.AddChild(closeButton);
     }
 
+    // Shown once at startup. Text is loaded from a BBCode resource file rather than baked into
+    // code so it's easy to proofread/tweak without touching C#, and split PC/Android since the
+    // control scheme differs (mouse vs. touch).
+    private void BuildHelpDialog(Theme theme)
+    {
+        string helpPath = IsAndroid ? "res://resources/help/android.txt" : "res://resources/help/pc.txt";
+        string helpText = FileAccess.GetFileAsString(helpPath);
+
+        _helpWindow = new DraggableWindow
+        {
+            Title = "Help",
+            Theme = theme,
+            Size = new Vector2I(560, 520),
+            MinSize = new Vector2I(320, 280),
+            Visible = false,
+            Unresizable = false
+        };
+        _helpWindow.CloseRequested += _helpWindow.Hide;
+        AddChild(_helpWindow);
+
+        var margin = new MarginContainer();
+        margin.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        margin.AddThemeConstantOverride("margin_left", 14);
+        margin.AddThemeConstantOverride("margin_top", 14);
+        margin.AddThemeConstantOverride("margin_right", 14);
+        margin.AddThemeConstantOverride("margin_bottom", 14);
+        _helpWindow.ContentArea.AddChild(margin);
+
+        // RichTextLabel scrolls its own overflow (ScrollActive, default on), so unlike the
+        // plain Label this replaced, it doesn't need a separate ScrollContainer wrapper.
+        var richText = new RichTextLabel
+        {
+            BbcodeEnabled = true,
+            Text = helpText,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill
+        };
+        richText.AddThemeColorOverride("default_color", Colors.White);
+        richText.AddThemeFontSizeOverride("normal_font_size", 18);
+        // RichTextLabel's built-in scrolling responds to the mouse wheel and dragging its own
+        // scrollbar, but not to a plain one-finger drag across the text itself - same class of
+        // touch gap as everything else in this project that needed a manual InputEventScreenDrag
+        // path (project.godot: pointing/emulate_mouse_from_touch=false). Value is a double, so
+        // unlike ScrollContainer.ScrollVertical (an int, see OnManualScrollDelta) this doesn't
+        // need a fractional-remainder accumulator.
+        richText.GuiInput += @event =>
+        {
+            if (@event is InputEventScreenDrag drag)
+            {
+                richText.GetVScrollBar().Value -= drag.Relative.Y;
+            }
+        };
+        margin.AddChild(richText);
+
+        // Only auto-shown the first time the app has ever run - once it's been displayed, a
+        // marker file remembers that so future startups stay quiet. It's still reachable any
+        // time afterward via the help button.
+        string helpShownPath = ProjectSettings.GlobalizePath(HelpShownFilePath);
+        if (!System.IO.File.Exists(helpShownPath))
+        {
+            System.IO.File.WriteAllText(helpShownPath, "1");
+            ShowHelp();
+        }
+    }
+
+    // Re-centers (in case the viewport was resized while it was closed) and shows the help
+    // dialog. Used both for the initial startup display and to reopen it from the help button.
+    private void ShowHelp()
+    {
+        Vector2I viewportSize = (Vector2I)GetViewport().GetVisibleRect().Size;
+        _helpWindow.Position = (viewportSize - _helpWindow.Size) / 2;
+        _helpWindow.Show();
+    }
+
+    // Small floating circular button, bottom-left of the screen, that reopens the help dialog.
+    private void BuildHelpButton()
+    {
+        const float diameter = 56f;
+        const float cornerRadius = diameter / 2f;
+
+        var helpButton = new Button
+        {
+            Text = "?",
+            FocusMode = Control.FocusModeEnum.None,
+            CustomMinimumSize = new Vector2(diameter, diameter)
+        };
+        helpButton.SetAnchorsPreset(Control.LayoutPreset.BottomLeft);
+        helpButton.OffsetLeft = 20;
+        helpButton.OffsetTop = -20 - diameter;
+        helpButton.OffsetRight = 20 + diameter;
+        helpButton.OffsetBottom = -20;
+
+        // A single shared StyleBoxFlat, drawing a stroke-only (unfilled) circle with a black
+        // drop shadow, covers every button state - there's no hover/pressed visual change here.
+        var circleStyle = new StyleBoxFlat
+        {
+            DrawCenter = false,
+            BorderColor = Colors.White,
+            BorderWidthLeft = 4,
+            BorderWidthTop = 4,
+            BorderWidthRight = 4,
+            BorderWidthBottom = 4,
+            CornerRadiusTopLeft = (int)cornerRadius,
+            CornerRadiusTopRight = (int)cornerRadius,
+            CornerRadiusBottomLeft = (int)cornerRadius,
+            CornerRadiusBottomRight = (int)cornerRadius,
+            ShadowColor = new Color(0f, 0f, 0f, 0.6f),
+            ShadowSize = 6
+        };
+        helpButton.AddThemeStyleboxOverride("normal", circleStyle);
+        helpButton.AddThemeStyleboxOverride("hover", circleStyle);
+        helpButton.AddThemeStyleboxOverride("pressed", circleStyle);
+        helpButton.AddThemeStyleboxOverride("focus", circleStyle);
+        helpButton.AddThemeStyleboxOverride("disabled", circleStyle);
+
+        helpButton.AddThemeFontSizeOverride("font_size", 28);
+        helpButton.AddThemeColorOverride("font_color", Colors.White);
+        helpButton.AddThemeColorOverride("font_hover_color", Colors.White);
+        helpButton.AddThemeColorOverride("font_pressed_color", Colors.White);
+        helpButton.AddThemeColorOverride("font_shadow_color", new Color(0f, 0f, 0f, 0.8f));
+        helpButton.AddThemeConstantOverride("shadow_offset_x", 0);
+        helpButton.AddThemeConstantOverride("shadow_offset_y", 2);
+        helpButton.AddThemeConstantOverride("shadow_outline_size", 2);
+
+        helpButton.Pressed += ShowHelp;
+        _uiLayer.AddChild(helpButton);
+    }
+
     private ColorRect CreateDropGap()
     {
         var gap = new ColorRect
@@ -1077,10 +1256,12 @@ public partial class Main : Node3D
             row.AddChild(label);
 
             var goButton = new Button { Text = "▶" };
+            goButton.AttachClickFlash();
             goButton.Pressed += () => GoToTourPoint(index);
             row.AddChild(goButton);
 
             var deleteButton = new Button { Text = "✕" };
+            deleteButton.AttachClickFlash();
             deleteButton.Pressed += () => DeleteTourPoint(index);
             row.AddChild(deleteButton);
 

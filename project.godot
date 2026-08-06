@@ -11,8 +11,10 @@ config_version=5
 config/name="mandelbrot"
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Mobile")
-config/icon="res://icon.svg"
-boot_splash/show_image=false
+config/icon="res://resources/images/icon.png"
+boot_splash/show_image=true
+boot_splash/image="res://resources/images/splash.png"
+boot_splash/bg_color=Color(0.15, 0.15, 0.15, 1)
 
 [display]
 

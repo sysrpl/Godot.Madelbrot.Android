@@ -1,0 +1,21 @@
+[font_size=26][b]Mandelbrot Set Viewer and Tour[/b][/font_size]
+
+This program is a Mandelbrot set viewer and touring app. The Mandelbrot set is a beautiful, endlessly detailed picture created from a simple fractal pattern that reveals new shapes no matter how closely you look.
+
+[b]Touch Controls[/b]
+
+[table=2]
+[cell]  One Finger   [/cell][cell]Pan the view.[/cell]
+[cell]  Two Fingers  [/cell][cell]Pinch to zoom.[/cell]
+[cell]  Three Fingers   [/cell][cell]Rotate the view.[/cell]
+[cell]  Double Tap   [/cell][cell]Reset the rotation.[/cell]
+[/table]
+
+[b]Buttons[/b]
+
+[table=2]
+[cell]  Tour   [/cell][cell]Plays a scripted flight through a series of interesting locations, zooming, panning, and rotating between them.[/cell]
+[cell]  Mark   [/cell][cell]Captures the current view (position, zoom, and rotation) as a new tour stop, appended to the end of the tour.[/cell]
+[cell]  Edit   [/cell][cell]Opens the tour editor. Drag a stop to reorder it, tap its arrow to jump straight to it, tap its X to delete it, or use Reset to restore the tour's default locations.[/cell]
+[cell]  Quit   [/cell][cell]Exits the program.[/cell]
+[/table]

@@ -1,6 +1,6 @@
 # Godot Mandelbrot Viewer With Android Support
 
-![Mandelbrot Viewer screenshot](docs/snapshot.png)
+![Welcome to Mandelbrot](resources/images/splash.png)
 
 A real-time Mandelbrot set explorer built with Godot 4.7 and .NET 8 (C#), rendered
 entirely in a fragment shader with pan, zoom, rotation, and a scripted tour of

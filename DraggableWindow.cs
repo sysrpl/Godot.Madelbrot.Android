@@ -111,6 +111,15 @@ public partial class DraggableWindow : Window
     // directly to the window - see the usage notes above.
     public Control ContentArea { get; private set; }
 
+    // When true (the default), a dimmed, full-screen, input-blocking backdrop is shown behind
+    // this window for as long as it's visible - darkening the rest of the app and preventing
+    // clicks/taps from reaching anything outside the dialog. Read once per show; toggle this
+    // before showing the window, not while it's already visible.
+    public bool DimBackground { get; set; } = true;
+
+    private CanvasLayer _dimLayer;
+    private ColorRect _dimOverlay;
+
     // Window-scoped (not per-Control) touch drag passthrough, for callers that need to run a
     // manual, engine-drag-free touch reorder/drag path (see TourPointRow/Main in this project).
     // A Window is its own Viewport, and Godot only delivers _Input to nodes belonging to
@@ -128,6 +137,13 @@ public partial class DraggableWindow : Window
     private enum ResizeEdge { None = 0, Left = 1, Right = 2, Top = 4, Bottom = 8 }
 
     private static readonly Vector2I DefaultMinWindowSize = new Vector2I(200, 150);
+
+    // How far past this window's edge a click/tap on the dim backdrop has to land before it
+    // counts as "outside" and closes the dialog - see OnDimOverlayGuiInput. Also consulted by
+    // OnRootSizeChanged's Android auto-fit resize, which needs to leave more than this much
+    // dimmed space on every side - otherwise a dialog shrunk to nearly fill the screen would
+    // leave no reachable "outside" area left to tap, making this feature unreachable.
+    private const float OutsideClickMargin = 30f;
 
     private Control _titleBar;
     private bool _dragging;
@@ -217,6 +233,7 @@ public partial class DraggableWindow : Window
             BaseFont = ThemeDB.FallbackFont,
             VariationEmbolden = 1.2f
         });
+        closeButton.AttachClickFlash();
         // Emits the standard Window.CloseRequested signal rather than freeing the window
         // outright, so callers that want to reuse the same instance (show/hide across repeated
         // opens) can just do `window.CloseRequested += window.Hide;`, exactly as they would for
@@ -224,14 +241,16 @@ public partial class DraggableWindow : Window
         closeButton.Pressed += () => EmitSignal(SignalName.CloseRequested);
         // Button's own click detection only reacts to InputEventMouseButton, so on Android
         // (project.godot: pointing/emulate_mouse_from_touch=false, so touch never synthesizes
-        // one) Pressed above never fires from a tap. Supplemented here with a direct
-        // touch-release check; MouseFilter=Stop on this Control (Button's default) already
-        // keeps these touches from also reaching the title bar's own drag handling below.
+        // one) Pressed above never fires from a tap. Supplemented here by emitting Pressed
+        // directly on touch-release, which cascades into both the CloseRequested forwarding
+        // above and the click-flash feedback, rather than duplicating either of them here.
+        // MouseFilter=Stop on this Control (Button's default) already keeps these touches from
+        // also reaching the title bar's own drag handling below.
         closeButton.GuiInput += @event =>
         {
             if (@event is InputEventScreenTouch touch && !touch.Pressed)
             {
-                EmitSignal(SignalName.CloseRequested);
+                closeButton.EmitSignal(BaseButton.SignalName.Pressed);
             }
         };
         _titleBar.AddChild(closeButton);
@@ -273,17 +292,100 @@ public partial class DraggableWindow : Window
         corner.OffsetLeft = -edgeThickness * 2;
         corner.OffsetTop = -edgeThickness * 2;
         AddChild(corner);
+
+        // 5. Dimmed backdrop (DimBackground). This Window's own rect only covers the dialog
+        // itself, so the overlay can't be a child of it - it has to live in the parent's
+        // viewport, sized to the whole screen. A dedicated CanvasLayer with a high Layer value
+        // keeps it above the rest of the app's ordinary UI; every embedded subwindow (this one
+        // included) is always composited above the entire CanvasLayer stack regardless, so it
+        // still ends up sandwiched correctly between the backdrop and this window's own content.
+        _dimLayer = new CanvasLayer { Layer = 100 };
+        _dimOverlay = new ColorRect
+        {
+            Color = new Color(0f, 0f, 0f, 0.5f),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            Visible = false
+        };
+        _dimOverlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _dimLayer.AddChild(_dimOverlay);
+        GetParent().AddChild(_dimLayer);
+
+        VisibilityChanged += () => _dimOverlay.Visible = DimBackground && Visible;
+        _dimOverlay.Visible = DimBackground && Visible;
+
+        // 6. Keep the window sane whenever the app's root viewport size changes - a desktop
+        // fullscreen toggle (F1) or an Android orientation change both fire this. See
+        // OnRootSizeChanged for how the two cases differ.
+        GetTree().Root.SizeChanged += OnRootSizeChanged;
+
+        TreeExiting += () =>
+        {
+            _dimLayer.QueueFree();
+            GetTree().Root.SizeChanged -= OnRootSizeChanged;
+        };
+    }
+
+    // Recenters this window whenever the root viewport is resized. On Android specifically,
+    // an orientation change can also leave the window too big for the new screen - if so, it's
+    // shrunk to fit first (never below MinSize), and only then recentered, since centering
+    // depends on the window's final size. A desktop fullscreen toggle just recenters, since the
+    // window was already an intentional, user-chosen size that still fits.
+    private void OnRootSizeChanged()
+    {
+        if (!Visible)
+        {
+            return;
+        }
+
+        Vector2I viewportSize = (Vector2I)GetTree().Root.GetVisibleRect().Size;
+
+        if (Main.IsAndroid && (Size.X > viewportSize.X || Size.Y > viewportSize.Y))
+        {
+            // Leaves (OutsideClickMargin + 20) px of dimmed space on every side - comfortably
+            // more than OutsideClickMargin alone, so there's always a reachable band to tap to
+            // close the dialog, not just a 0px-wide theoretical one right at the threshold.
+            int margin = (int)(OutsideClickMargin + 20f) * 2;
+            Vector2I minSize = MinSize != Vector2I.Zero ? MinSize : DefaultMinWindowSize;
+            Size = new Vector2I(
+                Mathf.Clamp(Size.X, minSize.X, Mathf.Max(minSize.X, viewportSize.X - margin)),
+                Mathf.Clamp(Size.Y, minSize.Y, Mathf.Max(minSize.Y, viewportSize.Y - margin)));
+        }
+
+        Position = (viewportSize - Size) / 2;
     }
 
     // A Window is its own Viewport, so Godot only delivers _Input to nodes belonging to
     // whichever viewport currently has focus - a node outside this window never sees these
     // events while it has focus. Caught here instead, scoped to the window's own viewport.
+    //
+    // Click/tap-outside-to-close also lives here rather than on the dim overlay's own GuiInput
+    // (a Control in the *parent* viewport) - that never fired for a touch on Android, because
+    // a tap anywhere on screen while this window has focus is delivered here first, to this
+    // window's own viewport, not to whatever Control happens to be underneath it on screen.
+    // Same underlying reason Escape/F1 need their own handler here instead of Main's.
     public override void _Input(InputEvent @event)
     {
         if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo && keyEvent.Keycode == Key.Escape)
         {
             EmitSignal(SignalName.CloseRequested);
             GetViewport().SetInputAsHandled();
+        }
+        else if (@event is InputEventKey fullscreenKey && fullscreenKey.Pressed && !fullscreenKey.Echo && fullscreenKey.Keycode == Key.F1)
+        {
+            // Main's own F1 handling lives in its _Input, which - same reasoning as Escape
+            // above - never fires while this window has focus, so fullscreen needs its own
+            // toggle here too.
+            DisplayServer.WindowSetMode(DisplayServer.WindowGetMode() == DisplayServer.WindowMode.Fullscreen
+                ? DisplayServer.WindowMode.Windowed
+                : DisplayServer.WindowMode.Fullscreen);
+        }
+        else if (DimBackground && @event is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+        {
+            CloseIfOutside(ToRootPosition(mb.Position));
+        }
+        else if (DimBackground && @event is InputEventScreenTouch touchPress && touchPress.Pressed)
+        {
+            CloseIfOutside(ToRootPosition(touchPress.Position));
         }
         else if (@event is InputEventScreenDrag dragEvent)
         {
@@ -292,6 +394,21 @@ public partial class DraggableWindow : Window
         else if (@event is InputEventScreenTouch touchEvent && !touchEvent.Pressed)
         {
             TouchDragEnded?.Invoke(touchEvent.Position);
+        }
+    }
+
+    // A click/tap more than OutsideClickMargin past every edge of this window is treated as
+    // "clicking away from it" and closes it; anything closer (including on the window itself)
+    // is a near-miss and left alone.
+    private void CloseIfOutside(Vector2 rootPosition)
+    {
+        var expandedRect = new Rect2(
+            (Vector2)Position - new Vector2(OutsideClickMargin, OutsideClickMargin),
+            (Vector2)Size + new Vector2(OutsideClickMargin * 2f, OutsideClickMargin * 2f));
+
+        if (!expandedRect.HasPoint(rootPosition))
+        {
+            EmitSignal(SignalName.CloseRequested);
         }
     }
 

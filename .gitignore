@@ -17,3 +17,7 @@ builds/
 
 # Android Gradle build tree (regenerated from export templates; large, not source)
 android/build/
+
+# Release signing keystore - the password lives in export_credentials.cfg (already ignored
+# above); the keystore file itself must never be committed either.
+keystores/

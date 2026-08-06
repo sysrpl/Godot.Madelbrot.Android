@@ -307,6 +307,8 @@ public partial class DraggableWindow : Window
             Visible = false
         };
         _dimOverlay.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        // Mouse only - see OnDimOverlayGuiInput for why touch can't use this same path.
+        _dimOverlay.GuiInput += OnDimOverlayGuiInput;
         _dimLayer.AddChild(_dimOverlay);
         GetParent().AddChild(_dimLayer);
 
@@ -358,11 +360,15 @@ public partial class DraggableWindow : Window
     // whichever viewport currently has focus - a node outside this window never sees these
     // events while it has focus. Caught here instead, scoped to the window's own viewport.
     //
-    // Click/tap-outside-to-close also lives here rather than on the dim overlay's own GuiInput
-    // (a Control in the *parent* viewport) - that never fired for a touch on Android, because
-    // a tap anywhere on screen while this window has focus is delivered here first, to this
-    // window's own viewport, not to whatever Control happens to be underneath it on screen.
-    // Same underlying reason Escape/F1 need their own handler here instead of Main's.
+    // Tap-outside-to-close (touch only - see OnDimOverlayGuiInput for the mouse half) also
+    // lives here rather than on the dim overlay's own GuiInput (a Control in the *parent*
+    // viewport): on Android, a tap anywhere on screen while this window has focus is delivered
+    // here first, to this window's own viewport, never reaching a different Control in the
+    // parent viewport at all. Desktop mouse clicks don't behave this way - they're routed by
+    // actual screen position across viewports, so a click outside this window's rect is
+    // delivered to whatever's really there (the dim overlay), not routed here regardless of
+    // position the way Android touch is. That split is why this needs two separate mechanisms
+    // rather than one.
     public override void _Input(InputEvent @event)
     {
         if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo && keyEvent.Keycode == Key.Escape)
@@ -379,10 +385,6 @@ public partial class DraggableWindow : Window
                 ? DisplayServer.WindowMode.Windowed
                 : DisplayServer.WindowMode.Fullscreen);
         }
-        else if (DimBackground && @event is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
-        {
-            CloseIfOutside(ToRootPosition(mb.Position));
-        }
         else if (DimBackground && @event is InputEventScreenTouch touchPress && touchPress.Pressed)
         {
             CloseIfOutside(ToRootPosition(touchPress.Position));
@@ -394,6 +396,18 @@ public partial class DraggableWindow : Window
         else if (@event is InputEventScreenTouch touchEvent && !touchEvent.Pressed)
         {
             TouchDragEnded?.Invoke(touchEvent.Position);
+        }
+    }
+
+    // Mouse half of tap-outside-to-close - see the _Input doc comment above for why this can't
+    // just be unified with the touch handling there. The dim overlay lives directly in the
+    // parent/root viewport (not nested in this window's own), so a position reported to its
+    // own GuiInput is already in root-viewport space - no ToRootPosition conversion needed.
+    private void OnDimOverlayGuiInput(InputEvent @event)
+    {
+        if (DimBackground && @event is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+        {
+            CloseIfOutside(mb.Position);
         }
     }
 

@@ -46,6 +46,10 @@ public partial class Main : Node3D
     private const int ActiveFps = 60;
     private const double UnthrottleSeconds = 2.0;
 
+    // How long a tour can play uninterrupted (no dialog open, no touch/mouse activity) before
+    // the buttons/stats/cursor auto-hide for an unobstructed view. See UpdateTourUiVisibility.
+    private const double TourAutoHideSeconds = 10.0;
+
     // Tour leg timing. Each leg cycles through five phases, A-E:
     //
     //   Phase | Description           | Start   | Duration
@@ -159,10 +163,13 @@ public partial class Main : Node3D
     private TextureButton _quitButton;
     private TextureButton _markButton;
     private TextureButton _editButton;
+    private Button _helpButton;
     private Label _statsLabel;
     private CanvasLayer _uiLayer;
     private Label _toastLabel;
     private Tween _toastTween;
+    private ulong _lastTourActivityTicksMsec;
+    private bool _tourUiHidden;
     private List<TourPointData> _tourPoints = new();
     private DraggableWindow _pointsWindow;
     private DraggableWindow _helpWindow;
@@ -270,6 +277,7 @@ public partial class Main : Node3D
     {
         UpdateFramerate();
         UpdateStatsLabel();
+        UpdateTourUiVisibility();
 
         if (_pointsWindow != null && _pointsWindow.Visible && !_pointsWindow.GuiIsDragging() && _manualDragIndex == null)
         {
@@ -306,6 +314,13 @@ public partial class Main : Node3D
                 return;
             }
         }
+
+        // Tracked here rather than via MarkInteraction()/_lastInteractionTicksMsec, since that
+        // mechanism only fires from the pan/zoom/rotate handling below, which is unreachable
+        // while touring (see the early return right after this). This needs to recognize
+        // activity precisely during a tour, without performing the pan/zoom/rotate itself.
+        if (_touring && !IsAnyDialogOpen() && input is InputEventMouseMotion or InputEventMouseButton or InputEventScreenTouch or InputEventScreenDrag)
+            _lastTourActivityTicksMsec = Time.GetTicksMsec();
 
         // The dimmed backdrop shown behind an open dialog (DraggableWindow.DimBackground)
         // blocks GUI-input clicks on the buttons behind it, but that doesn't cover this
@@ -570,6 +585,34 @@ public partial class Main : Node3D
         return (_pointsWindow != null && _pointsWindow.Visible) || (_helpWindow != null && _helpWindow.Visible);
     }
 
+    // Hides the tour/quit/help buttons, the stats label, and (on desktop) the mouse cursor once
+    // a tour has been playing undisturbed for TourAutoHideSeconds, for an unobstructed view
+    // during the automated flight. Mark/Edit are left alone here - UpdateButtonLayout already
+    // hides them for the whole duration of any tour, auto-hide or not. Touch/mouse activity
+    // while touring (tracked in _Input), the tour stopping, or a dialog opening all bring
+    // everything back on the very next frame, since this recomputes from scratch every time.
+    private void UpdateTourUiVisibility()
+    {
+        double elapsedSeconds = (Time.GetTicksMsec() - _lastTourActivityTicksMsec) / 1000.0;
+        bool shouldHide = _touring && !IsAnyDialogOpen() && elapsedSeconds > TourAutoHideSeconds;
+
+        if (shouldHide == _tourUiHidden)
+        {
+            return;
+        }
+
+        _tourUiHidden = shouldHide;
+        _tourButton.Visible = !shouldHide;
+        _quitButton.Visible = !shouldHide;
+        _helpButton.Visible = !shouldHide;
+        _statsLabel.Visible = !shouldHide;
+
+        if (!IsAndroid)
+        {
+            Input.MouseMode = shouldHide ? Input.MouseModeEnum.Hidden : Input.MouseModeEnum.Visible;
+        }
+    }
+
     private void UpdateStatsLabel()
     {
         double fps = Engine.GetFramesPerSecond();
@@ -617,6 +660,7 @@ public partial class Main : Node3D
         _panOffset = _targetPanOffset;
 
         _tourIndex = 0;
+        _lastTourActivityTicksMsec = Time.GetTicksMsec();
         MarkInteraction();
         PlayTourStep();
     }
@@ -1113,12 +1157,13 @@ public partial class Main : Node3D
         const float diameter = 56f;
         const float cornerRadius = diameter / 2f;
 
-        var helpButton = new Button
+        _helpButton = new Button
         {
             Text = "?",
             FocusMode = Control.FocusModeEnum.None,
             CustomMinimumSize = new Vector2(diameter, diameter)
         };
+        var helpButton = _helpButton;
         helpButton.SetAnchorsPreset(Control.LayoutPreset.BottomLeft);
         helpButton.OffsetLeft = 20;
         helpButton.OffsetTop = -20 - diameter;

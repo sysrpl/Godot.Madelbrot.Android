@@ -50,21 +50,23 @@ public partial class Main : Node3D
     // the buttons/stats/cursor auto-hide for an unobstructed view. See UpdateTourUiVisibility.
     private const double TourAutoHideSeconds = 10.0;
 
-    // Tour leg timing. Each leg cycles through five phases, A-E:
+    // Tour leg timing at the default 1x speed (PlayTourStep divides all of these by the Tour
+    // Speed slider's value, so actual durations scale inversely with it). Each leg cycles
+    // through five phases, A-E:
     //
     //   Phase | Description           | Start   | Duration
     //   ------|-----------------------|---------|---------
-    //   A     | Hold on current POI   | 0.00s   | 0.25s
-    //   B     | Zoom out              | 0.25s   | 4.75s
-    //   C     | Pan                   | 5.00s   | 1.50s
-    //   D     | Zoom in               | 6.50s   | 4.75s
-    //   E     | Hold at new POI       | 11.25s  | 0.25s
+    //   A     | Hold on current POI   | 0.00s   | 0.50s
+    //   B     | Zoom out              | 0.50s   | 9.50s
+    //   C     | Pan                   | 10.00s  | 3.00s
+    //   D     | Zoom in               | 13.00s  | 9.50s
+    //   E     | Hold at new POI       | 22.50s  | 0.50s
     //
-    // Total leg duration: 11.50s, then the cycle repeats at the next POI's (A).
-    private const double TourHoldSeconds = 0.25;      // (A), (E)
-    private const double TourZoomLegSeconds = 4.75;   // (B), (D)
-    private const double TourPanLegSeconds = 1.5;     // (C)
-    private const float TourOverviewZoom = 2.0f;
+    // Total leg duration: 23.00s, then the cycle repeats at the next POI's (A).
+    private const double TourHoldSeconds = 0.25 * 2.0;      // (A), (E)
+    private const double TourZoomLegSeconds = 4.75 * 2.0;   // (B), (D)
+    private const double TourPanLegSeconds = 1.5 * 2.0;     // (C)
+    private const float TourOverviewZoom = 3.0f;
     private const float MouseRotationDegreesPerPixel = 0.25f;
 
     // Rotation's fall from 180 to 0 spans (A)+(B); its rise from 0 to 180 spans (D)+(E).
@@ -73,12 +75,17 @@ public partial class Main : Node3D
 
     private const string TourPointsFilePath = "user://tour_points.json";
     private const string HelpShownFilePath = "user://help_shown.flag";
+    private const string TourSpeedFilePath = "user://tour_speed.txt";
 
     // Documented, named locations in the Mandelbrot set (center coordinate sourced from
     // mrob.com's Mu-Ency encyclopedia and the sci.fractals FAQ; zoom level chosen to frame
     // each feature). Coordinates with a published magnification convert as zoom = 3 / width.
     // Rotation is 180 on every default point to reproduce the tour's original fixed
     // 180 -> 0 -> 180 oscillation exactly when the user resets back to these.
+    //
+    // Currently unused: CreateDefaultTourPoints() below (a custom tour exported via F3 and
+    // pasted in over the original placeholder) is what Reset to Defaults actually uses now.
+    // Kept here in case these seven originally-researched locations are wanted back.
     private static List<TourPointData> CreateMrRobsTourPoints() => new()
     {
         new TourPointData { PanX = 0.27205, PanY = 0.006118, Zoom = 70.0, Rotation = 180.0f },      // Elephant Valley
@@ -157,6 +164,12 @@ public partial class Main : Node3D
     private ulong _lastInteractionTicksMsec;
     private bool _touring = false;
     private int _tourIndex = 0;
+    // Multiplies tour playback rate (0.25x-4x, set via the Tour Speed slider in the tour
+    // editor) - every leg's phase durations are divided by this in PlayTourStep(). Persisted
+    // across sessions - see LoadTourSpeed/SaveTourSpeed.
+    private double _tourSpeed = 1.0;
+    private HSlider _tourSpeedSlider;
+    private Label _tourSpeedLabel;
     private Tween _tourTween;
     private Tween _tourRotationTween;
     private TextureButton _tourButton;
@@ -253,6 +266,7 @@ public partial class Main : Node3D
         ui.AddChild(_statsLabel);
 
         LoadTourPoints();
+        LoadTourSpeed();
         BuildPointsDialog(theme);
         BuildHelpDialog(theme);
         BuildHelpButton();
@@ -692,20 +706,28 @@ public partial class Main : Node3D
         _tourTween?.Kill();
         _tourTween = CreateTween();
 
+        // Divides every phase's duration by the Tour Speed slider (0.25x-4x, default 1x =
+        // exactly the base durations above) - computed once per leg, so a mid-tour slider
+        // change takes effect starting with the next leg.
+        double holdSeconds = TourHoldSeconds / _tourSpeed;
+        double zoomLegSeconds = TourZoomLegSeconds / _tourSpeed;
+        double panLegSeconds = TourPanLegSeconds / _tourSpeed;
+        double rotationTransitionSeconds = TourRotationTransitionSeconds / _tourSpeed;
+
         // (A) Hold on the current point of interest before departing.
-        _tourTween.TweenInterval(TourHoldSeconds);
+        _tourTween.TweenInterval(holdSeconds);
 
         // (B) Zoom out to a wide overview.
-        TweenZoomTo(_tourTween, TourOverviewZoom, TourZoomLegSeconds);
+        TweenZoomTo(_tourTween, TourOverviewZoom, zoomLegSeconds);
 
         // (C) Pan to center the point of interest.
-        TweenPanTo(_tourTween, targetPanD, TourPanLegSeconds);
+        TweenPanTo(_tourTween, targetPanD, panLegSeconds);
 
         // (D) Zoom in to the point of interest's best view.
-        TweenZoomTo(_tourTween, targetZoomD, TourZoomLegSeconds);
+        TweenZoomTo(_tourTween, targetZoomD, zoomLegSeconds);
 
         // (E) Hold at the new point of interest.
-        _tourTween.TweenInterval(TourHoldSeconds);
+        _tourTween.TweenInterval(holdSeconds);
 
         // Rotation runs on its own timeline, independent of the zoom/pan phases: eases from
         // wherever it currently is (the previous point's stored rotation) down to 0 across
@@ -715,10 +737,10 @@ public partial class Main : Node3D
 
         _tourRotationTween?.Kill();
         _tourRotationTween = CreateTween();
-        _tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), rotationAtLegStart, 0.0f, TourRotationTransitionSeconds) // (A)+(B) fall to 0
+        _tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), rotationAtLegStart, 0.0f, rotationTransitionSeconds) // (A)+(B) fall to 0
             .SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.InOut);
-        _tourRotationTween.TweenInterval(TourPanLegSeconds); // (C) hold at 0
-        _tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), 0.0f, point.Rotation, TourRotationTransitionSeconds) // (D)+(E) rise to this point's rotation
+        _tourRotationTween.TweenInterval(panLegSeconds); // (C) hold at 0
+        _tourRotationTween.TweenMethod(Callable.From<float>(SetRotationValue), 0.0f, point.Rotation, rotationTransitionSeconds) // (D)+(E) rise to this point's rotation
             .SetTrans(Tween.TransitionType.Quad).SetEase(Tween.EaseType.InOut);
 
         _tourTween.Finished += OnTourStepFinished;
@@ -768,6 +790,31 @@ public partial class Main : Node3D
         System.IO.File.WriteAllText(path, json);
     }
 
+    private void LoadTourSpeed()
+    {
+        string path = ProjectSettings.GlobalizePath(TourSpeedFilePath);
+        if (System.IO.File.Exists(path))
+        {
+            try
+            {
+                _tourSpeed = double.Parse(System.IO.File.ReadAllText(path), CultureInfo.InvariantCulture);
+                return;
+            }
+            catch (Exception)
+            {
+                // Corrupt or hand-edited-wrong: fall back to the default below.
+            }
+        }
+
+        _tourSpeed = 1.0;
+    }
+
+    private void SaveTourSpeed()
+    {
+        string path = ProjectSettings.GlobalizePath(TourSpeedFilePath);
+        System.IO.File.WriteAllText(path, _tourSpeed.ToString(CultureInfo.InvariantCulture));
+    }
+
     private void ResetTourPointsToDefaults()
     {
         _tourPoints = CreateDefaultTourPoints();
@@ -792,7 +839,7 @@ public partial class Main : Node3D
     }
 
     // Brief center-screen notification: fades in, holds, fades out. The background rectangle
-    // is sized by the Label's own "normal" stylebox content margins (2px), so it's always
+    // is sized by the Label's own "normal" stylebox content margins (20px), so it's always
     // exactly as wide/tall as the current message, not a fixed size.
     private void ShowToast(string message)
     {
@@ -841,6 +888,12 @@ public partial class Main : Node3D
     private void OnPointsButtonPressed()
     {
         RefreshPointsDialog();
+
+        // Resync the slider/label to _tourSpeed every time the dialog is about to be shown,
+        // not just at startup - setting Value here won't itself re-fire ValueChanged if it's
+        // already at that value, so the label needs updating explicitly alongside it.
+        _tourSpeedSlider.Value = _tourSpeed;
+        _tourSpeedLabel.Text = $"Speed {_tourSpeed:F2}";
 
         Vector2I viewportSize = (Vector2I)GetViewport().GetVisibleRect().Size;
         _pointsWindow.Position = (viewportSize - _pointsWindow.Size) / 2;
@@ -1020,6 +1073,16 @@ public partial class Main : Node3D
         _pointsWindow.CloseRequested += _pointsWindow.Hide;
         _pointsWindow.TouchDragMoved += OnManualTouchDragMoved;
         _pointsWindow.TouchDragEnded += OnManualTouchDragEnded;
+        // VisibilityChanged rather than hooking CloseRequested specifically, since that's only
+        // one of several ways the dialog can close (title bar X, tap-outside, Escape, and the
+        // bottom bar's own Close button, which hides it directly) - this catches all of them.
+        _pointsWindow.VisibilityChanged += () =>
+        {
+            if (!_pointsWindow.Visible)
+            {
+                SaveTourSpeed();
+            }
+        };
         AddChild(_pointsWindow);
 
         // DraggableWindow builds its own background/border/title bar/close button/resize
@@ -1059,6 +1122,69 @@ public partial class Main : Node3D
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
         };
         listMargin.AddChild(_pointsListContainer);
+
+        // Extra top/bottom margin on Android only - without it the slider sits close enough to
+        // the points list and bottom bar that a touch meant for the slider easily lands on one
+        // of them instead.
+        var speedMargin = new MarginContainer();
+        if (IsAndroid)
+        {
+            speedMargin.AddThemeConstantOverride("margin_top", 16);
+            speedMargin.AddThemeConstantOverride("margin_bottom", 16);
+        }
+        vbox.AddChild(speedMargin);
+
+        var speedRow = new HBoxContainer();
+        speedRow.AddThemeConstantOverride("separation", 12);
+        speedMargin.AddChild(speedRow);
+
+        _tourSpeedLabel = new Label { Text = $"Speed {_tourSpeed:F2}" };
+        speedRow.AddChild(_tourSpeedLabel);
+
+        // Taller hit target on Android - the default slider height is a thin line that's easy
+        // to miss with a finger.
+        float speedSliderHeight = IsAndroid ? 48f : 24f;
+        var speedSliderContainer = new Control
+        {
+            CustomMinimumSize = new Vector2(0, speedSliderHeight),
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill
+        };
+        speedRow.AddChild(speedSliderContainer);
+
+        _tourSpeedSlider = new HSlider
+        {
+            MinValue = 0.25,
+            MaxValue = 4.0,
+            Step = 0.25,
+            Value = _tourSpeed
+        };
+        _tourSpeedSlider.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
+        _tourSpeedSlider.ValueChanged += value =>
+        {
+            _tourSpeed = value;
+            _tourSpeedLabel.Text = $"Speed {value:F2}";
+        };
+        // HSlider's own dragging only reacts to InputEventMouseButton/Motion, so on Android
+        // (project.godot: pointing/emulate_mouse_from_touch=false) it never sees a tap or drag -
+        // same touch gap as everything else in this project under that setting. Driven manually
+        // here by mapping the touch's x position straight to a value across the slider's width;
+        // Range already snaps that to the nearest Step for us.
+        _tourSpeedSlider.GuiInput += @event =>
+        {
+            float touchX = @event switch
+            {
+                InputEventScreenTouch touch when touch.Pressed => touch.Position.X,
+                InputEventScreenDrag drag => drag.Position.X,
+                _ => float.NaN
+            };
+
+            if (!float.IsNaN(touchX) && _tourSpeedSlider.Size.X > 0f)
+            {
+                float fraction = Mathf.Clamp(touchX / _tourSpeedSlider.Size.X, 0f, 1f);
+                _tourSpeedSlider.Value = _tourSpeedSlider.MinValue + fraction * (_tourSpeedSlider.MaxValue - _tourSpeedSlider.MinValue);
+            }
+        };
+        speedSliderContainer.AddChild(_tourSpeedSlider);
 
         var bottomBar = new HBoxContainer
         {

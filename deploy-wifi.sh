@@ -50,6 +50,6 @@ fi
 echo "Deploying to $WIFI_SERIAL over Wi-Fi ..."
 
 mkdir -p builds
-godot --headless --path . --export-debug "Android" builds/mixamo.apk
-adb -s "$WIFI_SERIAL" install -r builds/mixamo.apk
+godot --headless --path . --export-debug "Android" builds/mandelbrot.apk
+adb -s "$WIFI_SERIAL" install -r builds/mandelbrot.apk
 adb -s "$WIFI_SERIAL" shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1

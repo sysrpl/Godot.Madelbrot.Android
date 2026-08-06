@@ -14,6 +14,6 @@ if [ -z "$USB_SERIAL" ]; then
 fi
 
 mkdir -p builds
-godot --headless --path . --export-debug "Android" builds/mixamo.apk
-adb -s "$USB_SERIAL" install -r builds/mixamo.apk
+godot --headless --path . --export-debug "Android" builds/mandelbrot.apk
+adb -s "$USB_SERIAL" install -r builds/mandelbrot.apk
 adb -s "$USB_SERIAL" shell monkey -p org.godotdemo.scaffoldproject -c android.intent.category.LAUNCHER 1

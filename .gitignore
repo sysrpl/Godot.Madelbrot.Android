@@ -7,6 +7,8 @@ data_*/
 mono_crash.*.json
 *.import
 *.uid
+*.mp4
+
 # .NET
 bin/
 obj/

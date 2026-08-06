@@ -1,4 +1,4 @@
-[gd_resource type="Theme" load_steps=11 format=3]
+[gd_resource type="Theme" load_steps=12 format=3]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_normal"]
 bg_color = Color(0.129412, 0.109804, 0.098039, 1)
@@ -113,6 +113,18 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_slider_track"]
+bg_color = Color(0.129412, 0.109804, 0.098039, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.803922, 0.427451, 0.172549, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
 [resource]
 default_font_size = 20
 
@@ -154,3 +166,7 @@ WindowCloseButton/font_sizes/font_size = 20
 VScrollBar/styles/grabber = SubResource("StyleBoxFlat_scrollbar_grabber")
 VScrollBar/styles/grabber_highlight = SubResource("StyleBoxFlat_scrollbar_grabber_highlight")
 VScrollBar/styles/grabber_pressed = SubResource("StyleBoxFlat_scrollbar_grabber_highlight")
+
+HSlider/styles/slider = SubResource("StyleBoxFlat_slider_track")
+HSlider/styles/grabber_area = SubResource("StyleBoxFlat_scrollbar_grabber")
+HSlider/styles/grabber_area_highlight = SubResource("StyleBoxFlat_scrollbar_grabber_highlight")

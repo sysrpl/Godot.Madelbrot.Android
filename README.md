@@ -87,26 +87,11 @@ in the bottom-left corner opens the help dialog.
 
 ## Running
 
-Open a terminal and type ```dotnet build && godot``` to run. 
+To build simply type ```dotnet build```  
 
-For Android:
+To run type ```godot```
 
-```sh
-./build.sh          # builds the Android app
-./deploy.sh          # installs to a USB-connected device
-./deploy-wifi.sh     # installs to a device over Wi-Fi (adb)
-```
-
-## Building release versions
-
-Release (non-debug) exports for all three platforms are pre-configured in
-`export_presets.cfg` and can be built entirely from the CLI, no editor needed:
-
-```sh
-godot --headless --export-release "Windows Desktop" builds/windows/mandelbrot.exe
-godot --headless --export-release "Linux" builds/linux/mandelbrot.x86_64
-godot --headless --export-release "Android" builds/android/mandelbrot.apk
-```
+To run on your Android on your USB connected device type ```./deploy.sh``` and the demo will be transferred and run. 
 
 ## Project layout
 

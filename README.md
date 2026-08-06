@@ -22,6 +22,8 @@ documented locations in the set. Runs on Windows, Linux, and Android.
 - Android-specific tuning: pinch/pan zoom jumps directly to its target instead of
   animating, to keep frame time low on mobile GPUs.
 
+![Screen Capture](docs/snapshot.png)
+
 ## Requirements
 
 - [Godot 4.7](https://godotengine.org/) with .NET/C# support (Mono build)

@@ -1,3 +1,11 @@
+// When defined, renders via resources/shaders/deepzoom.gdshader (perturbation-based: a
+// double-precision reference orbit computed here in C# and iterated as small float32 deltas in
+// the shader) instead of resources/shaders/mandelbrot.gdshader (the direct/absolute-coordinate
+// version). Pushes the usable zoom depth from float32's own ~10^5-10^6 ceiling out to roughly
+// what C# double precision can resolve for the reference orbit (~10^13-10^14), at no extra
+// per-pixel GPU cost. See deepzoom.gdshader's header comment for the full explanation.
+// #define USE_DEEP_ZOOM
+
 using Godot;
 using System;
 using System.Collections.Generic;
@@ -212,7 +220,11 @@ public partial class Main : Node3D
 
         _mandelbrotShader = new ShaderMaterial
         {
+#if USE_DEEP_ZOOM
+            Shader = GD.Load<Shader>("res://resources/shaders/deepzoom.gdshader")
+#else
             Shader = GD.Load<Shader>("res://resources/shaders/mandelbrot.gdshader")
+#endif
         };
 
         var renderArea = new ColorRect
@@ -1449,10 +1461,75 @@ public partial class Main : Node3D
 
     private void UpdateShaderUniforms()
     {
+        // deepzoom.gdshader needs pan_offset too - below its own zoom threshold it renders
+        // identically to the direct/absolute method, which pan_offset is for.
         _mandelbrotShader.SetShaderParameter("pan_offset", new Vector2((float)_panOffset.X, (float)_panOffset.Y));
+#if USE_DEEP_ZOOM
+        _mandelbrotShader.SetShaderParameter("ref_orbit_tex", ComputeReferenceOrbitTexture(_panOffset));
+#endif
         _mandelbrotShader.SetShaderParameter("zoom", (float)_zoom);
         _mandelbrotShader.SetShaderParameter("rotation", Mathf.DegToRad(_rotation));
     }
+
+#if USE_DEEP_ZOOM
+    // Must match deepzoom.gdshader's own MAX_ITER (the reference orbit texture is this wide,
+    // so the two have to agree).
+    private const int DeepZoomMaxIter = 200;
+
+    // Updated in place (not recreated) each call - this runs up to ActiveFps times/sec while
+    // animating, and recreating the GPU texture object every time would mean needlessly
+    // reallocating/rebinding it instead of just refreshing its pixel data.
+    private ImageTexture _referenceOrbitTexture;
+
+    // The reference orbit only depends on the view center (_panOffset), not zoom or rotation -
+    // recomputed unconditionally here anyway since 200 double-precision iterations is trivially
+    // cheap on the CPU compared to the per-pixel cost this replaces on the GPU. Uploaded as an
+    // RG-float texture (width DeepZoomMaxIter, height 1) rather than a fixed-size array uniform -
+    // Texture2D uniforms are a far more reliably-supported upload path from C# than array
+    // uniforms turned out to be.
+    private Texture2D ComputeReferenceOrbitTexture(DVector2 center)
+    {
+        var image = Image.CreateEmpty(DeepZoomMaxIter, 1, false, Image.Format.Rgf);
+        double zr = 0.0;
+        double zi = 0.0;
+
+        for (int n = 0; n < DeepZoomMaxIter; n++)
+        {
+            var current = new Color((float)zr, (float)zi, 0f, 0f);
+            image.SetPixel(n, 0, current);
+
+            double nextZr = zr * zr - zi * zi + center.X;
+            double nextZi = 2.0 * zr * zi + center.Y;
+            zr = nextZr;
+            zi = nextZi;
+
+            if (zr * zr + zi * zi > 4.0)
+            {
+                // The reference orbit itself escaped - pad the rest with this last value so
+                // the shader's fixed-size loop never reads an uninitialized entry. Pixels that
+                // are still bounded past this point simply stop resolving further detail; a
+                // reference point deep inside the set (the common case once the view is
+                // centered on interesting detail) never hits this at all.
+                var last = new Color((float)zr, (float)zi, 0f, 0f);
+                for (int j = n + 1; j < DeepZoomMaxIter; j++)
+                {
+                    image.SetPixel(j, 0, last);
+                }
+                break;
+            }
+        }
+
+        if (_referenceOrbitTexture == null)
+        {
+            _referenceOrbitTexture = ImageTexture.CreateFromImage(image);
+        }
+        else
+        {
+            _referenceOrbitTexture.Update(image);
+        }
+        return _referenceOrbitTexture;
+    }
+#endif
 
     private void TakeScreenshot()
     {

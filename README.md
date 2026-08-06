@@ -87,7 +87,7 @@ in the bottom-left corner opens the help dialog.
 
 ## Running
 
-Open the project in the Godot editor and run it directly for Windows/Linux.
+Open a terminal and type ```dotnet build && godot``` to run. 
 
 For Android:
 
